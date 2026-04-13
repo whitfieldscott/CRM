@@ -1,13 +1,16 @@
-import time
 import json
 import os
+import time
+from typing import Optional
+
 import requests
 from datetime import datetime
-from email_service import send_email
 
-TEST_MODE = False
-TEST_EMAIL = "admin@arkonesystems.com"
-BACKEND_URL = "http://127.0.0.1:8000"
+from email_service import send_email
+from settings_store import get_test_mode
+
+TEST_EMAIL = os.getenv("TEST_EMAIL", "admin@arkonesystems.com")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 
 # Throttle settings
 BATCH_SIZE = 50
@@ -16,21 +19,21 @@ DELAY_BETWEEN_BATCHES = 60
 
 # Warmup schedule
 WARMUP_SCHEDULE = {
-    1:  200,   # Week 1 — 200/day
-    2:  200,
-    3:  200,
-    4:  200,
-    5:  200,
-    6:  200,
-    7:  200,
-    8:  400,   # Week 2 — 400/day
-    9:  400,
+    1: 200,
+    2: 200,
+    3: 200,
+    4: 200,
+    5: 200,
+    6: 200,
+    7: 200,
+    8: 400,
+    9: 400,
     10: 400,
     11: 400,
     12: 400,
     13: 400,
     14: 400,
-    15: 800,   # Week 3 — 800/day
+    15: 800,
     16: 800,
     17: 800,
     18: 800,
@@ -96,12 +99,25 @@ def get_unsubscribed_emails() -> set:
     return set()
 
 
-def send_bulk_emails(df, file_name: str = "unknown"):
+def send_bulk_emails(
+    df,
+    file_name: str = "unknown",
+    db=None,
+    campaign_log_id: Optional[int] = None,
+    email_subject: Optional[str] = None,
+):
     """
     Expects a CLEAN dataframe with an 'email' column.
     Tracks position so each day sends the next batch.
+    Optional db + campaign_log_id: logs EmailSendRecord rows and updates Contact.last_contacted.
     """
-    subject = "Available Clones — Rooted Dominion | Rooted & Ready $5 Each"
+    from sqlalchemy import func
+
+    from models import Client, Contact, EmailSendRecord
+
+    subject = email_subject or (
+        "Available Clones — Rooted Dominion | Rooted & Ready $5 Each"
+    )
     content = ""
     plain_text = """
 Hello Fellow Licensed Growers,
@@ -120,6 +136,7 @@ Sales Representative · Rooted Dominion
 admin@arkonesystems.com
     """
 
+    test_mode = get_test_mode()
     daily_limit = get_daily_limit()
 
     unsubscribed = get_unsubscribed_emails()
@@ -132,55 +149,96 @@ admin@arkonesystems.com
     print(f"📍 Starting from position: {start_pos}")
 
     if start_pos >= len(df):
-        print(f"🔄 Full list has been sent. Resetting to start.")
+        print("🔄 Full list has been sent. Resetting to start.")
         start_pos = 0
         tracking = load_tracking()
         if file_name in tracking:
             tracking[file_name]["last_position"] = 0
         save_tracking(tracking)
 
-    batch = df.iloc[start_pos:start_pos + daily_limit]
+    batch = df.iloc[start_pos : start_pos + daily_limit]
     print(f"📤 Sending to contacts {start_pos + 1} — {start_pos + len(batch)} today...")
 
     total_sent = 0
     total_failed = 0
     total_skipped = 0
 
-    for i, (_, row) in enumerate(batch.iterrows()):
-        real_email = row["email"]
+    log_db = db is not None and campaign_log_id is not None
 
-        if not real_email or "@" not in real_email:
-            total_skipped += 1
-            continue
+    try:
+        for i, (_, row) in enumerate(batch.iterrows()):
+            real_email = row["email"]
 
-        to_email = TEST_EMAIL if TEST_MODE else real_email
+            if not real_email or "@" not in str(real_email):
+                total_skipped += 1
+                continue
 
-        print(f"📨 [{i+1}/{len(batch)}] Sending to: {real_email} → {to_email}")
+            real_email = str(real_email).strip().lower()
+            to_email = TEST_EMAIL if test_mode else real_email
 
-        success = send_email(
-            to_email=to_email,
-            subject=subject,
-            content=content,
-            plain_text=plain_text
-        )
+            print(f"📨 [{i+1}/{len(batch)}] Sending to: {real_email} → {to_email}")
 
-        if success:
-            total_sent += 1
-        else:
-            total_failed += 1
+            success = send_email(
+                to_email=to_email,
+                subject=subject,
+                content=content,
+                plain_text=plain_text,
+            )
 
-        time.sleep(DELAY_BETWEEN_EMAILS)
+            if success:
+                total_sent += 1
+            else:
+                total_failed += 1
 
-        if (i + 1) % BATCH_SIZE == 0:
-            print(f"⏸️ Batch of {BATCH_SIZE} done. Pausing {DELAY_BETWEEN_BATCHES}s...")
-            time.sleep(DELAY_BETWEEN_BATCHES)
+            if log_db:
+                contact = (
+                    db.query(Contact).filter(Contact.email == real_email).first()
+                )
+                client = (
+                    db.query(Client)
+                    .filter(
+                        func.lower(Client.primary_contact_email) == real_email
+                    )
+                    .first()
+                )
+                rec = EmailSendRecord(
+                    client_id=client.id if client else None,
+                    contact_id=contact.id if contact else None,
+                    campaign_log_id=campaign_log_id,
+                    recipient_email=real_email,
+                    subject=subject,
+                    success=success,
+                    sent_at=datetime.utcnow(),
+                )
+                db.add(rec)
+                if success and contact:
+                    contact.last_contacted = datetime.utcnow()
+
+            time.sleep(DELAY_BETWEEN_EMAILS)
+
+            if (i + 1) % BATCH_SIZE == 0:
+                print(
+                    f"⏸️ Batch of {BATCH_SIZE} done. Pausing {DELAY_BETWEEN_BATCHES}s..."
+                )
+                time.sleep(DELAY_BETWEEN_BATCHES)
+
+        if log_db:
+            db.commit()
+    except Exception:
+        if log_db:
+            db.rollback()
+        raise
 
     new_position = start_pos + len(batch)
     tracking = load_tracking()
-    total_sent_so_far = tracking.get(file_name, {}).get("total_sent_so_far", 0) + total_sent
+    total_sent_so_far = (
+        tracking.get(file_name, {}).get("total_sent_so_far", 0) + total_sent
+    )
     update_position(file_name, new_position, total_sent_so_far)
 
-    print(f"\n✅ Done — Sent: {total_sent} | ❌ Failed: {total_failed} | ⏭️ Skipped: {total_skipped}")
+    print(
+        f"\n✅ Done — Sent: {total_sent} | ❌ Failed: {total_failed} | ⏭️ Skipped: {total_skipped}"
+    )
     print(f"📍 Next send will start at position: {new_position}")
     print(f"📊 Total sent so far: {total_sent_so_far}/{len(df)}")
 
@@ -190,5 +248,5 @@ admin@arkonesystems.com
         "skipped": total_skipped,
         "daily_limit": daily_limit,
         "next_position": new_position,
-        "total_sent_so_far": total_sent_so_far
+        "total_sent_so_far": total_sent_so_far,
     }

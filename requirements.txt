@@ -6,3 +6,5 @@ python-multipart
 sendgrid
 python-dotenv
 streamlit
+requests
+email-validator

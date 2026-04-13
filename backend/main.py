@@ -1,25 +1,71 @@
-from fastapi import FastAPI, HTTPException, Depends
-from csv_sender import send_bulk_emails
-from email_service import send_email  # ✅ add this import
-from fastapi import HTTPException
+import io
+import re
+from datetime import datetime
+from typing import Optional
+
 import pandas as pd
+from csv_sender import send_bulk_emails
 from database import SessionLocal, engine, Base
-from models import Unsubscribe
+from email_service import FROM_EMAIL, SENDGRID_API_KEY, send_email
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from models import (
+    CampaignLog,
+    Client,
+    ClientNote,
+    Contact,
+    EmailSendRecord,
+    Unsubscribe,
+)
+from schemas import (
+    CSVImportSummary,
+    CampaignLogCreate,
+    CampaignLogResponse,
+    ClientCreate,
+    ClientNoteCreate,
+    ClientNoteResponse,
+    ClientResponse,
+    ClientUpdate,
+    ContactCreate,
+    ContactResponse,
+    ContactUpdate,
+    EmailSendResponse,
+    SettingsResponse,
+    SettingsUpdate,
+)
+from settings_store import get_test_mode, set_test_mode
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-app = FastAPI()
+app = FastAPI(title="Rooted Dominion CRM API")
 
-def load_and_clean_csv(file_path: str):
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+def normalize_csv_header(col: str) -> str:
+    s = str(col).strip().lower().replace(".", "").replace(" ", "_").replace("-", "_")
+    while "__" in s:
+        s = s.replace("__", "_")
+    return s
+
+
+def load_and_clean_csv(file_path: str) -> pd.DataFrame:
     try:
         df = pd.read_csv(file_path)
-
-        # Normalize columns
-        df.columns = [col.lower().strip().replace(" ", "_").replace("-", "_") for col in df.columns]
+        df.columns = [normalize_csv_header(c) for c in df.columns]
 
         if "email" not in df.columns:
-            raise HTTPException(status_code=400, detail="CSV must contain an 'email' column")
+            raise HTTPException(
+                status_code=400,
+                detail="CSV must contain an 'email' column (or column mappable to email)",
+            )
 
-        # Clean emails
         df["email"] = df["email"].astype(str).str.strip().str.lower()
         df = df[df["email"] != "nan"]
         df = df[df["email"].str.contains("@", na=False)]
@@ -27,65 +73,58 @@ def load_and_clean_csv(file_path: str):
 
         return df
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing CSV: {e}")
 
-@app.get("/")
-def root():
-    return {"message": "Backend is running 🚀"}
 
-@app.get("/test-email")
-def test_email():
-    send_email(
-        to_email="scottwhitfield1977@gmail.com",
-        subject="Test Email",
-        content="<strong>This is a test email</strong>"
-    )
-    return {"status": "Test email sent"}
+# Map normalized CSV column name -> Contact attribute name
+IMPORT_COLUMN_MAP = {
+    "email": "email",
+    "business_name": "company",
+    "company": "company",
+    "name": "name",
+    "contact_name": "name",
+    "license_no": "license_number",
+    "license_number": "license_number",
+    "phone_number": "phone",
+    "phone": "phone",
+    "license_type": "license_type",
+    "city": "city",
+    "state": "state",
+    "tags": "tags",
+    "notes": "notes",
+}
 
-@app.post("/send-bulk")
-def send_bulk(file_name: str):
-    file_path = f"../data/{file_name}"
 
-    df = load_and_clean_csv(file_path)
+def _row_to_contact_attrs(row: pd.Series) -> dict:
+    attrs = {}
+    for col in row.index:
+        key = str(col).strip().lower()
+        field = IMPORT_COLUMN_MAP.get(key)
+        if not field:
+            continue
+        val = row[col]
+        if pd.isna(val):
+            continue
+        s = str(val).strip()
+        if not s or s.lower() == "nan":
+            continue
+        attrs[field] = s
+    return attrs
 
-    result = send_bulk_emails(df)
 
-    return {
-        "message": "Emails sent",
-        "total_sent": len(df),
-        "result": result
-    }
+def _valid_email(email: str) -> bool:
+    if not email or "@" not in email:
+        return False
+    return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email.strip()))
 
-@app.get("/preview-csv")
-def preview_csv(file_name: str):
-    file_path = f"../data/{file_name}"
 
-    df = load_and_clean_csv(file_path)
+@app.on_event("startup")
+def _startup():
+    Base.metadata.create_all(bind=engine)
 
-    preview_data = df.head(5).to_dict(orient="records")
-
-    return {
-        "total_rows": len(df),
-        "columns": list(df.columns),
-        "preview": preview_data
-    }
-
-@app.get("/confirm-send")
-def confirm_send(file_name: str):
-    file_path = f"../data/{file_name}"
-
-    df = load_and_clean_csv(file_path)
-
-    return {
-        "file_name": file_name,
-        "total_valid_emails": len(df),
-        "sample_emails": df["email"].head(5).tolist(),
-        "ready_to_send": True
-    }
-
-# Create all tables on startup
-Base.metadata.create_all(bind=engine)
 
 def get_db():
     db = SessionLocal()
@@ -94,9 +133,495 @@ def get_db():
     finally:
         db.close()
 
+
+@app.get("/")
+def root():
+    return {"message": "Backend is running 🚀"}
+
+
+@app.get("/settings", response_model=SettingsResponse)
+def get_settings():
+    return SettingsResponse(
+        from_email=FROM_EMAIL,
+        sendgrid_configured=bool(SENDGRID_API_KEY),
+        test_mode=get_test_mode(),
+    )
+
+
+@app.put("/settings", response_model=SettingsResponse)
+def update_settings(body: SettingsUpdate):
+    set_test_mode(body.test_mode)
+    return get_settings()
+
+
+@app.get("/test-email")
+def test_email():
+    send_email(
+        to_email="admin@arkonesystems.com",
+        subject="Test Email",
+        content="<strong>This is a test email</strong>",
+    )
+    return {"status": "Test email sent"}
+
+
+BULK_EMAIL_SUBJECT = "Available Clones — Rooted Dominion | Rooted & Ready $5 Each"
+
+
+@app.post("/send-bulk")
+def send_bulk(
+    file_name: str,
+    campaign_name: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    file_path = f"../data/{file_name}"
+
+    df = load_and_clean_csv(file_path)
+
+    name = campaign_name or f"Bulk: {file_name}"
+    campaign = CampaignLog(
+        campaign_name=name,
+        file_used=file_name,
+        total_sent=0,
+        total_failed=0,
+        total_skipped=0,
+        date_sent=datetime.utcnow(),
+    )
+    db.add(campaign)
+    db.flush()
+    db.refresh(campaign)
+
+    try:
+        result = send_bulk_emails(
+            df,
+            file_name=file_name,
+            db=db,
+            campaign_log_id=campaign.id,
+            email_subject=BULK_EMAIL_SUBJECT,
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
+
+    campaign.total_sent = result.get("sent", 0)
+    campaign.total_failed = result.get("failed", 0)
+    campaign.total_skipped = result.get("skipped", 0)
+    db.commit()
+    db.refresh(campaign)
+
+    return {
+        "message": "Emails sent",
+        "total_in_file": len(df),
+        "campaign_log_id": campaign.id,
+        "result": result,
+    }
+
+
+@app.get("/preview-csv")
+def preview_csv(file_name: str):
+    file_path = f"../data/{file_name}"
+    df = load_and_clean_csv(file_path)
+    preview_data = df.head(5).to_dict(orient="records")
+    return {
+        "total_rows": len(df),
+        "columns": list(df.columns),
+        "preview": preview_data,
+    }
+
+
+@app.get("/confirm-send")
+def confirm_send(file_name: str):
+    file_path = f"../data/{file_name}"
+    df = load_and_clean_csv(file_path)
+    return {
+        "file_name": file_name,
+        "total_valid_emails": len(df),
+        "sample_emails": df["email"].head(5).tolist(),
+        "ready_to_send": True,
+    }
+
+
+# --- Contacts ---
+
+
+@app.post("/contacts", response_model=ContactResponse)
+def create_contact(payload: ContactCreate, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    existing = db.query(Contact).filter(Contact.email == email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Contact with this email already exists")
+
+    c = Contact(
+        name=payload.name,
+        email=email,
+        phone=payload.phone,
+        company=payload.company,
+        license_number=payload.license_number,
+        license_type=payload.license_type,
+        city=payload.city,
+        state=payload.state or "OK",
+        tags=payload.tags,
+        notes=payload.notes,
+        is_active=payload.is_active,
+    )
+    db.add(c)
+    try:
+        db.commit()
+        db.refresh(c)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return c
+
+
+@app.get("/contacts", response_model=list[ContactResponse])
+def list_contacts(
+    license_type: Optional[str] = None,
+    tags: Optional[str] = None,
+    search: Optional[str] = None,
+    active_only: bool = False,
+    db: Session = Depends(get_db),
+):
+    q = db.query(Contact)
+
+    if active_only:
+        q = q.filter(Contact.is_active.is_(True))
+
+    if license_type:
+        lt = license_type.strip().lower()
+        q = q.filter(func.lower(Contact.license_type) == lt)
+
+    if tags:
+        t = tags.strip().lower()
+        q = q.filter(
+            Contact.tags.isnot(None),
+            func.lower(Contact.tags).like(f"%{t}%"),
+        )
+
+    if search:
+        term = f"%{search.strip().lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(Contact.name).like(term),
+                func.lower(Contact.email).like(term),
+                func.lower(Contact.company).like(term),
+            )
+        )
+
+    return q.order_by(Contact.created_at.desc(), Contact.id.desc()).all()
+
+
+@app.get("/contacts/{contact_id}", response_model=ContactResponse)
+def get_contact(contact_id: int, db: Session = Depends(get_db)):
+    c = db.query(Contact).filter(Contact.id == contact_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    return c
+
+
+@app.put("/contacts/{contact_id}", response_model=ContactResponse)
+def update_contact(
+    contact_id: int, payload: ContactUpdate, db: Session = Depends(get_db)
+):
+    c = db.query(Contact).filter(Contact.id == contact_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "email" in data and data["email"] is not None:
+        data["email"] = str(data["email"]).strip().lower()
+        taken = (
+            db.query(Contact)
+            .filter(Contact.email == data["email"], Contact.id != contact_id)
+            .first()
+        )
+        if taken:
+            raise HTTPException(status_code=400, detail="Email already in use")
+
+    for k, v in data.items():
+        setattr(c, k, v)
+
+    try:
+        db.commit()
+        db.refresh(c)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return c
+
+
+@app.delete("/contacts/{contact_id}")
+def delete_contact(contact_id: int, db: Session = Depends(get_db)):
+    c = db.query(Contact).filter(Contact.id == contact_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    db.delete(c)
+    db.commit()
+    return {"message": "Contact deleted", "id": contact_id}
+
+
+@app.post("/contacts/import-csv", response_model=CSVImportSummary)
+async def import_contacts_csv(
+    file: UploadFile = File(...), db: Session = Depends(get_db)
+):
+    try:
+        raw = await file.read()
+        df = pd.read_csv(io.BytesIO(raw))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read CSV: {e}")
+
+    df.columns = [normalize_csv_header(c) for c in df.columns]
+
+    if "email" not in df.columns:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV must include an email column (e.g. 'email')",
+        )
+
+    df["_email_norm"] = df["email"].astype(str).str.strip().str.lower()
+    df = df[df["_email_norm"] != "nan"]
+    df = df[df["_email_norm"].str.contains("@", na=False)]
+    df = df.drop_duplicates(subset=["_email_norm"], keep="last")
+
+    added = updated = skipped_invalid = 0
+
+    for _, row in df.iterrows():
+        email = row["_email_norm"]
+        if not _valid_email(email):
+            skipped_invalid += 1
+            continue
+
+        attrs = _row_to_contact_attrs(row.drop(labels=["_email_norm"], errors="ignore"))
+        attrs["email"] = email
+
+        existing = db.query(Contact).filter(Contact.email == email).first()
+        if existing:
+            for key, val in attrs.items():
+                if key == "email":
+                    continue
+                if val is not None and str(val).strip():
+                    setattr(existing, key, val)
+            updated += 1
+        else:
+            c = Contact(
+                email=email,
+                name=attrs.get("name"),
+                phone=attrs.get("phone"),
+                company=attrs.get("company"),
+                license_number=attrs.get("license_number"),
+                license_type=attrs.get("license_type"),
+                city=attrs.get("city"),
+                state=attrs.get("state") or "OK",
+                tags=attrs.get("tags"),
+                notes=attrs.get("notes"),
+            )
+            db.add(c)
+            added += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Import failed: {e}")
+
+    return CSVImportSummary(
+        added=added,
+        updated=updated,
+        skipped_invalid=skipped_invalid,
+        total_rows_processed=int(len(df)),
+    )
+
+
+# --- Clients ---
+
+
+@app.post("/clients", response_model=ClientResponse)
+def create_client(payload: ClientCreate, db: Session = Depends(get_db)):
+    c = Client(
+        name=payload.name,
+        license_number=payload.license_number,
+        license_type=payload.license_type,
+        primary_contact_name=payload.primary_contact_name,
+        primary_contact_email=(
+            payload.primary_contact_email.strip().lower()
+            if payload.primary_contact_email
+            else None
+        ),
+        primary_contact_phone=payload.primary_contact_phone,
+        address=payload.address,
+        city=payload.city,
+        state=payload.state or "OK",
+        notes=payload.notes,
+        is_active=payload.is_active,
+    )
+    db.add(c)
+    try:
+        db.commit()
+        db.refresh(c)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return c
+
+
+@app.get("/clients", response_model=list[ClientResponse])
+def list_clients(active_only: bool = True, db: Session = Depends(get_db)):
+    q = db.query(Client)
+    if active_only:
+        q = q.filter(Client.is_active.is_(True))
+    return q.order_by(Client.name.asc()).all()
+
+
+@app.get("/clients/{client_id}", response_model=ClientResponse)
+def get_client(client_id: int, db: Session = Depends(get_db)):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return c
+
+
+@app.put("/clients/{client_id}", response_model=ClientResponse)
+def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(get_db)):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    data = payload.model_dump(exclude_unset=True)
+    if "primary_contact_email" in data and data["primary_contact_email"]:
+        data["primary_contact_email"] = data["primary_contact_email"].strip().lower()
+
+    for k, v in data.items():
+        setattr(c, k, v)
+
+    try:
+        db.commit()
+        db.refresh(c)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return c
+
+
+@app.delete("/clients/{client_id}")
+def delete_client(client_id: int, db: Session = Depends(get_db)):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    c.is_active = False
+    db.commit()
+    return {"message": "Client deactivated", "id": client_id}
+
+
+@app.get("/clients/{client_id}/emails", response_model=list[EmailSendResponse])
+def client_emails(client_id: int, db: Session = Depends(get_db)):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    rows = (
+        db.query(EmailSendRecord)
+        .filter(EmailSendRecord.client_id == client_id)
+        .order_by(EmailSendRecord.sent_at.desc(), EmailSendRecord.id.desc())
+        .all()
+    )
+    return rows
+
+
+@app.get("/clients/{client_id}/campaigns", response_model=list[CampaignLogResponse])
+def client_campaign_history(client_id: int, db: Session = Depends(get_db)):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    sub = (
+        db.query(EmailSendRecord.campaign_log_id)
+        .filter(
+            EmailSendRecord.client_id == client_id,
+            EmailSendRecord.campaign_log_id.isnot(None),
+        )
+        .distinct()
+        .all()
+    )
+    ids = [x[0] for x in sub if x[0]]
+    if not ids:
+        return []
+    logs = (
+        db.query(CampaignLog)
+        .filter(CampaignLog.id.in_(ids))
+        .order_by(CampaignLog.date_sent.desc(), CampaignLog.id.desc())
+        .all()
+    )
+    return logs
+
+
+@app.post("/clients/{client_id}/notes", response_model=ClientNoteResponse)
+def add_client_note(
+    client_id: int, payload: ClientNoteCreate, db: Session = Depends(get_db)
+):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    n = ClientNote(client_id=client_id, note=payload.note.strip())
+    db.add(n)
+    db.commit()
+    db.refresh(n)
+    return n
+
+
+@app.get("/clients/{client_id}/notes", response_model=list[ClientNoteResponse])
+def list_client_notes(client_id: int, db: Session = Depends(get_db)):
+    c = db.query(Client).filter(Client.id == client_id).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    notes = (
+        db.query(ClientNote)
+        .filter(ClientNote.client_id == client_id)
+        .order_by(ClientNote.created_at.desc(), ClientNote.id.desc())
+        .all()
+    )
+    return notes
+
+
+# --- Campaign logs ---
+
+
+@app.post("/campaigns/log", response_model=CampaignLogResponse)
+def log_campaign(payload: CampaignLogCreate, db: Session = Depends(get_db)):
+    log = CampaignLog(
+        campaign_name=payload.campaign_name,
+        file_used=payload.file_used,
+        total_sent=payload.total_sent,
+        total_failed=payload.total_failed,
+        total_skipped=payload.total_skipped,
+        date_sent=datetime.utcnow(),
+    )
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log
+
+
+@app.get("/campaigns", response_model=list[CampaignLogResponse])
+def list_campaigns(db: Session = Depends(get_db)):
+    return (
+        db.query(CampaignLog)
+        .order_by(CampaignLog.date_sent.desc(), CampaignLog.id.desc())
+        .all()
+    )
+
+
+@app.get("/campaigns/{campaign_id}", response_model=CampaignLogResponse)
+def get_campaign(campaign_id: int, db: Session = Depends(get_db)):
+    log = db.query(CampaignLog).filter(CampaignLog.id == campaign_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Campaign log not found")
+    return log
+
+
+# --- Unsubscribe (existing) ---
+
+
 @app.get("/unsubscribe")
 def unsubscribe(email: str, db: Session = Depends(get_db)):
-    # Check if already unsubscribed
     existing = db.query(Unsubscribe).filter(
         Unsubscribe.email == email.lower().strip()
     ).first()
@@ -108,16 +633,18 @@ def unsubscribe(email: str, db: Session = Depends(get_db)):
 
     return {
         "message": f"{email} has been unsubscribed successfully.",
-        "status": "unsubscribed"
+        "status": "unsubscribed",
     }
+
 
 @app.get("/unsubscribe-list")
 def get_unsubscribes(db: Session = Depends(get_db)):
     records = db.query(Unsubscribe).all()
     return {
         "total": len(records),
-        "emails": [r.email for r in records]
+        "emails": [r.email for r in records],
     }
+
 
 @app.delete("/unsubscribe")
 def remove_unsubscribe(email: str, db: Session = Depends(get_db)):
