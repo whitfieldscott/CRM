@@ -4,3 +4,5 @@ sqlalchemy
 pandas
 python-multipart
 sendgrid
+python-dotenv
+streamlit

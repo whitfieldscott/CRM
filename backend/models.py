@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, Integer, String, DateTime
 from database import Base
+from datetime import datetime
 
 class Contact(Base):
     __tablename__ = "contacts"
@@ -14,3 +15,10 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     content = Column(String)
+
+class Unsubscribe(Base):
+    __tablename__ = "unsubscribes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    unsubscribed_at = Column(DateTime, default=datetime.utcnow)
