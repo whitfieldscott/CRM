@@ -2,6 +2,7 @@
 data/
 .env
 .venv
-__pycache__/*.__pyc
 .db
 .ipynb_checkpoints/
+__pycache__/
+*.pyc
