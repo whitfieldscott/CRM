@@ -7,6 +7,8 @@ from typing import Optional
 import pandas as pd
 import requests
 from csv_sender import send_bulk_emails
+from sms_sender import send_bulk_sms
+from sms_service import TEST_SMS_TO, normalize_us_e164, twilio_configured
 from database import SessionLocal, engine, Base
 from email_service import FROM_EMAIL, SENDGRID_API_KEY, send_email
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
@@ -17,6 +19,7 @@ from models import (
     ClientNote,
     Contact,
     EmailSendRecord,
+    SmsCampaignLog,
     Unsubscribe,
 )
 from analytics_schemas import (
@@ -41,6 +44,9 @@ from schemas import (
     EmailSendResponse,
     SettingsResponse,
     SettingsUpdate,
+    SmsCampaignLogResponse,
+    SmsContactsResponse,
+    SmsSendBody,
 )
 from settings_store import get_test_mode, set_test_mode
 from sqlalchemy import and_, func, or_
@@ -289,6 +295,153 @@ def confirm_send(file_name: str):
         "sample_emails": df["email"].head(5).tolist(),
         "ready_to_send": True,
     }
+
+
+def _sms_warmup_meta() -> dict:
+    from csv_sender import WARMUP_SCHEDULE, WARMUP_START_DATE
+
+    today = datetime.now()
+    d = (today - WARMUP_START_DATE).days + 1
+    if d < 1:
+        d = 1
+    if d > 21:
+        return {"warmup_day": d, "daily_limit": 999999, "warmup_complete": True}
+    return {
+        "warmup_day": d,
+        "daily_limit": WARMUP_SCHEDULE.get(d, 200),
+        "warmup_complete": False,
+    }
+
+
+def _sms_contacts_dataframe(file_path: str) -> tuple[pd.DataFrame, dict]:
+    """Return deduped dataframe with E.164 `phone` column and size stats."""
+    df0 = load_and_clean_csv(file_path)
+    total_rows_in_file = len(df0)
+    phone_col = None
+    for name in ("phone", "phone_number", "mobile", "cell"):
+        if name in df0.columns:
+            phone_col = name
+            break
+    if not phone_col:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV must include a phone column (phone, phone_number, mobile, or cell).",
+        )
+    norm = df0[phone_col].map(normalize_us_e164)
+    valid_mask = norm.notna()
+    rows_without_valid_phone = int((~valid_mask).sum())
+    sub = df0[valid_mask].copy()
+    sub["phone"] = norm[valid_mask]
+    sub = sub.drop_duplicates(subset=["phone"])
+    meta = {
+        "total_rows_in_file": total_rows_in_file,
+        "rows_without_valid_phone": rows_without_valid_phone,
+        "unique_valid_phones": len(sub),
+    }
+    return sub, meta
+
+
+@app.get("/sms/contacts", response_model=SmsContactsResponse)
+def get_sms_contacts(file_name: str):
+    """Valid phone numbers from a CSV in /data (same list as email blaster)."""
+    safe = _safe_data_csv_file_name(file_name)
+    path = f"../data/{safe}"
+    warmup = _sms_warmup_meta()
+    try:
+        df_valid, meta = _sms_contacts_dataframe(path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    sample = df_valid["phone"].head(5).astype(str).tolist()
+
+    return SmsContactsResponse(
+        file_name=safe,
+        total_rows_in_file=meta["total_rows_in_file"],
+        total_valid_phones=meta["unique_valid_phones"],
+        rows_without_valid_phone=meta["rows_without_valid_phone"],
+        sample_phones=sample,
+        daily_limit=warmup["daily_limit"],
+        warmup_day=warmup["warmup_day"],
+        warmup_complete=warmup["warmup_complete"],
+        test_mode=get_test_mode(),
+        twilio_configured=twilio_configured(),
+    )
+
+
+@app.post("/sms/send")
+def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
+    if not twilio_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env.",
+        )
+    if get_test_mode() and not (TEST_SMS_TO or "").strip():
+        raise HTTPException(
+            status_code=400,
+            detail="TEST_MODE is on: set TEST_SMS_TO in .env to a verified destination number for SMS tests.",
+        )
+
+    safe = _safe_data_csv_file_name(payload.file_name)
+    path = f"../data/{safe}"
+    try:
+        df, meta = _sms_contacts_dataframe(path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if len(df) == 0:
+        raise HTTPException(
+            status_code=400, detail="No contacts with valid phone numbers in this file.",
+        )
+
+    name = (payload.campaign_name or "").strip() or f"SMS: {safe}"
+    log = SmsCampaignLog(
+        campaign_name=name,
+        file_used=safe,
+        total_sent=0,
+        total_failed=0,
+        total_skipped=0,
+        date_sent=datetime.utcnow(),
+    )
+    db.add(log)
+    db.flush()
+    db.refresh(log)
+
+    try:
+        result = send_bulk_sms(
+            df,
+            file_name=safe,
+            message=payload.message.strip(),
+            db=db,
+            sms_campaign_log_id=log.id,
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"SMS send failed: {e}")
+
+    log.total_sent = result.get("sent", 0)
+    log.total_failed = result.get("failed", 0)
+    log.total_skipped = result.get("skipped", 0)
+    db.commit()
+    db.refresh(log)
+
+    return {
+        "message": "SMS campaign finished",
+        "total_in_file": meta["unique_valid_phones"],
+        "sms_campaign_log_id": log.id,
+        "result": result,
+    }
+
+
+@app.get("/sms/history", response_model=list[SmsCampaignLogResponse])
+def list_sms_campaign_history(db: Session = Depends(get_db)):
+    return (
+        db.query(SmsCampaignLog)
+        .order_by(SmsCampaignLog.date_sent.desc(), SmsCampaignLog.id.desc())
+        .all()
+    )
 
 
 # --- Contacts ---

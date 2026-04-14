@@ -92,6 +92,20 @@ class CampaignLog(Base):
     email_sends = relationship("EmailSendRecord", back_populates="campaign_log")
 
 
+class SmsCampaignLog(Base):
+    """SMS bulk sends — same aggregate fields as CampaignLog."""
+
+    __tablename__ = "sms_campaign_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    campaign_name = Column(String, nullable=False)
+    file_used = Column(String, nullable=True)
+    total_sent = Column(Integer, default=0)
+    total_failed = Column(Integer, default=0)
+    total_skipped = Column(Integer, default=0)
+    date_sent = Column(DateTime, default=datetime.utcnow)
+
+
 class EmailSendRecord(Base):
     """Per-recipient send history (supports GET /clients/{id}/emails)."""
 

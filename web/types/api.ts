@@ -106,3 +106,33 @@ export type SendBulkResponse = {
   campaign_log_id: number;
   result: Record<string, unknown>;
 };
+
+export type SmsContactsResponse = {
+  file_name: string;
+  total_rows_in_file: number;
+  total_valid_phones: number;
+  rows_without_valid_phone: number;
+  sample_phones: string[];
+  daily_limit: number;
+  warmup_day: number;
+  warmup_complete: boolean;
+  test_mode: boolean;
+  twilio_configured: boolean;
+};
+
+export type SmsSendResponse = {
+  message: string;
+  total_in_file: number;
+  sms_campaign_log_id: number;
+  result: Record<string, unknown>;
+};
+
+export type SmsCampaignLog = {
+  id: number;
+  campaign_name: string;
+  file_used: string | null;
+  total_sent: number;
+  total_failed: number;
+  total_skipped: number;
+  date_sent: string | null;
+};

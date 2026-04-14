@@ -144,6 +144,37 @@ class CampaignLogResponse(BaseModel):
     date_sent: Optional[datetime] = None
 
 
+class SmsCampaignLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    campaign_name: str
+    file_used: Optional[str] = None
+    total_sent: int
+    total_failed: int
+    total_skipped: int
+    date_sent: Optional[datetime] = None
+
+
+class SmsContactsResponse(BaseModel):
+    file_name: str
+    total_rows_in_file: int
+    total_valid_phones: int
+    rows_without_valid_phone: int
+    sample_phones: list[str]
+    daily_limit: int
+    warmup_day: int
+    warmup_complete: bool
+    test_mode: bool
+    twilio_configured: bool
+
+
+class SmsSendBody(BaseModel):
+    file_name: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=160)
+    campaign_name: Optional[str] = None
+
+
 class CampaignTemplateBody(BaseModel):
     html: str
 

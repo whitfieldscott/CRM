@@ -87,6 +87,7 @@ const NAV: NavTop[] = [
     id: "marketing",
     label: "Marketing",
     icon: Megaphone,
+    parentHref: "/marketing",
     children: [
       {
         kind: "leaf",
@@ -113,18 +114,16 @@ const NAV: NavTop[] = [
       {
         kind: "leaf",
         id: "marketing-text-setup",
-        href: "/text/campaigns/setup",
+        href: "/text-campaign",
         label: "Text - Campaign Setup",
         icon: MessageSquare,
-        hidden: true,
       },
       {
         kind: "leaf",
         id: "marketing-text-history",
-        href: "/text/campaigns/history",
+        href: "/text-history",
         label: "Text - Campaign History",
         icon: MessageSquare,
-        hidden: true,
       },
       {
         kind: "leaf",
