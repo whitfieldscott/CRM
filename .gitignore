@@ -7,4 +7,4 @@ __pycache__/*.__pyc
 .db
 .ipynb_checkpoints/
 __pycache__/
-*.pyc
+*.pyc.env
