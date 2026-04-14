@@ -7,7 +7,8 @@ import {
   Mail,
   Users,
   Building2,
-  History,
+  Megaphone,
+  BarChart2,
   Settings,
   Menu,
   Leaf,
@@ -22,7 +23,8 @@ const nav = [
   { href: "/email", label: "Email Blaster", icon: Mail },
   { href: "/contacts", label: "Contacts", icon: Users },
   { href: "/clients", label: "Clients", icon: Building2 },
-  { href: "/campaigns", label: "Campaign History", icon: History },
+  { href: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { href: "/marketing", label: "Marketing", icon: BarChart2 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

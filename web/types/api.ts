@@ -85,6 +85,21 @@ export type ConfirmSendResponse = {
   ready_to_send: boolean;
 };
 
+export type CampaignTemplateResponse = {
+  html: string;
+};
+
+export type CampaignTemplateSaveResponse = {
+  success: boolean;
+};
+
+export type CampaignSendAPIResponse = {
+  sent: number;
+  failed: number;
+  skipped: number;
+  campaign_log_id: number;
+};
+
 export type SendBulkResponse = {
   message: string;
   total_in_file: number;

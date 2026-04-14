@@ -105,6 +105,8 @@ def send_bulk_emails(
     db=None,
     campaign_log_id: Optional[int] = None,
     email_subject: Optional[str] = None,
+    html_content: Optional[str] = None,
+    plain_text: Optional[str] = None,
 ):
     """
     Expects a CLEAN dataframe with an 'email' column.
@@ -118,8 +120,9 @@ def send_bulk_emails(
     subject = email_subject or (
         "Available Clones — Rooted Dominion | Rooted & Ready $5 Each"
     )
-    content = ""
-    plain_text = """
+    use_custom_html = html_content is not None and str(html_content).strip() != ""
+    content = (html_content or "").strip() if use_custom_html else ""
+    default_plain = """
 Hello Fellow Licensed Growers,
 
 Rooted Dominion (Exotic Gardens at Fire Ranch) is your premium clone choice.
@@ -135,6 +138,15 @@ Sales Representative · Rooted Dominion
 (925) 457-6236
 admin@arkonesystems.com
     """
+    body_plain = (
+        plain_text.strip()
+        if plain_text and str(plain_text).strip()
+        else (
+            "Please view the HTML version of this message."
+            if use_custom_html
+            else default_plain
+        )
+    )
 
     test_mode = get_test_mode()
     daily_limit = get_daily_limit()
@@ -182,7 +194,8 @@ admin@arkonesystems.com
                 to_email=to_email,
                 subject=subject,
                 content=content,
-                plain_text=plain_text,
+                plain_text=body_plain,
+                force_html_body=use_custom_html,
             )
 
             if success:

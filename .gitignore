@@ -1,7 +1,9 @@
 .DS_Store
-data/
-.env
+data/**
+!data/email_template.html
+.env/
 .venv
+__pycache__/*.__pyc
 .db
 .ipynb_checkpoints/
 __pycache__/

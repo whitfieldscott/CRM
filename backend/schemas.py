@@ -144,6 +144,15 @@ class CampaignLogResponse(BaseModel):
     date_sent: Optional[datetime] = None
 
 
+class CampaignTemplateBody(BaseModel):
+    html: str
+
+
+class CampaignSendBody(BaseModel):
+    campaign_name: str
+    file_name: str
+
+
 class EmailSendResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

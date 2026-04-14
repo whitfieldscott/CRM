@@ -1,9 +1,11 @@
 import io
 import re
-from datetime import datetime
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
+import requests
 from csv_sender import send_bulk_emails
 from database import SessionLocal, engine, Base
 from email_service import FROM_EMAIL, SENDGRID_API_KEY, send_email
@@ -17,10 +19,17 @@ from models import (
     EmailSendRecord,
     Unsubscribe,
 )
+from analytics_schemas import (
+    CampaignAnalyticsRow,
+    EmailAnalyticsResponse,
+    SendGridStatsResponse,
+)
 from schemas import (
     CSVImportSummary,
     CampaignLogCreate,
     CampaignLogResponse,
+    CampaignSendBody,
+    CampaignTemplateBody,
     ClientCreate,
     ClientNoteCreate,
     ClientNoteResponse,
@@ -34,7 +43,7 @@ from schemas import (
     SettingsUpdate,
 )
 from settings_store import get_test_mode, set_test_mode
-from sqlalchemy import func, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 app = FastAPI(title="Rooted Dominion CRM API")
@@ -77,6 +86,48 @@ def load_and_clean_csv(file_path: str) -> pd.DataFrame:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error processing CSV: {e}")
+
+
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+EMAIL_TEMPLATE_PATH = DATA_DIR / "email_template.html"
+
+# Used only if data/email_template.html is missing (e.g. first deploy before file is created).
+_FALLBACK_TEMPLATE_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
+<body style="margin:0;padding:24px;font-family:system-ui,sans-serif;">
+<p>Rooted Dominion — template file was not found. Save a draft from the Campaigns page
+or add <code>data/email_template.html</code>.</p>
+<p><a href="{{UNSUBSCRIBE_URL}}">Unsubscribe</a></p>
+</body></html>"""
+
+
+def read_email_template_string() -> str:
+    if EMAIL_TEMPLATE_PATH.is_file():
+        try:
+            return EMAIL_TEMPLATE_PATH.read_text(encoding="utf-8")
+        except OSError as e:
+            raise HTTPException(
+                status_code=500, detail=f"Could not read email template: {e}"
+            )
+    return _FALLBACK_TEMPLATE_HTML
+
+
+def write_email_template_file(html: str) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        EMAIL_TEMPLATE_PATH.write_text(html, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not save email template: {e}"
+        )
+
+
+def _safe_data_csv_file_name(name: str) -> str:
+    n = (name or "").strip()
+    if not n:
+        raise HTTPException(status_code=400, detail="file_name is required")
+    if ".." in n or "/" in n or "\\" in n:
+        raise HTTPException(status_code=400, detail="Invalid file_name")
+    return n
 
 
 # Map normalized CSV column name -> Contact attribute name
@@ -581,7 +632,82 @@ def list_client_notes(client_id: int, db: Session = Depends(get_db)):
     return notes
 
 
-# --- Campaign logs ---
+# --- Campaigns (template + logs; static paths before /campaigns/{id}) ---
+
+
+@app.get("/campaigns", response_model=list[CampaignLogResponse])
+def list_campaigns(db: Session = Depends(get_db)):
+    return (
+        db.query(CampaignLog)
+        .order_by(CampaignLog.date_sent.desc(), CampaignLog.id.desc())
+        .all()
+    )
+
+
+@app.get("/campaigns/template")
+def get_campaign_email_template():
+    """Return saved HTML from data/email_template.html, or fallback if missing."""
+    return {"html": read_email_template_string()}
+
+
+@app.post("/campaigns/template")
+def save_campaign_email_template(payload: CampaignTemplateBody):
+    write_email_template_file(payload.html)
+    return {"success": True}
+
+
+@app.post("/campaigns/send")
+def send_campaign_with_template(payload: CampaignSendBody, db: Session = Depends(get_db)):
+    """
+    Load HTML from data/email_template.html, send bulk (HTML body, not dynamic template),
+    and update CampaignLog counts.
+    """
+    template_html = read_email_template_string()
+    safe_name = _safe_data_csv_file_name(payload.file_name)
+    file_path = f"../data/{safe_name}"
+    df = load_and_clean_csv(file_path)
+
+    name = payload.campaign_name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="campaign_name is required")
+
+    campaign = CampaignLog(
+        campaign_name=name,
+        file_used=safe_name,
+        total_sent=0,
+        total_failed=0,
+        total_skipped=0,
+        date_sent=datetime.utcnow(),
+    )
+    db.add(campaign)
+    db.flush()
+    db.refresh(campaign)
+
+    try:
+        result = send_bulk_emails(
+            df,
+            file_name=safe_name,
+            db=db,
+            campaign_log_id=campaign.id,
+            email_subject=name,
+            html_content=template_html,
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Send failed: {e}")
+
+    campaign.total_sent = result.get("sent", 0)
+    campaign.total_failed = result.get("failed", 0)
+    campaign.total_skipped = result.get("skipped", 0)
+    db.commit()
+    db.refresh(campaign)
+
+    return {
+        "sent": campaign.total_sent,
+        "failed": campaign.total_failed,
+        "skipped": campaign.total_skipped,
+        "campaign_log_id": campaign.id,
+    }
 
 
 @app.post("/campaigns/log", response_model=CampaignLogResponse)
@@ -598,15 +724,6 @@ def log_campaign(payload: CampaignLogCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(log)
     return log
-
-
-@app.get("/campaigns", response_model=list[CampaignLogResponse])
-def list_campaigns(db: Session = Depends(get_db)):
-    return (
-        db.query(CampaignLog)
-        .order_by(CampaignLog.date_sent.desc(), CampaignLog.id.desc())
-        .all()
-    )
 
 
 @app.get("/campaigns/{campaign_id}", response_model=CampaignLogResponse)
@@ -658,3 +775,145 @@ def remove_unsubscribe(email: str, db: Session = Depends(get_db)):
         return {"message": f"{email} removed from unsubscribe list"}
 
     return {"message": f"{email} was not on the unsubscribe list"}
+
+
+# --- Marketing analytics ---
+
+
+def _fetch_sendgrid_last_30_days() -> SendGridStatsResponse:
+    zeros = {
+        "opens": 0,
+        "clicks": 0,
+        "bounces": 0,
+        "spam_reports": 0,
+        "unsubscribes": 0,
+        "delivered": 0,
+        "requests": 0,
+    }
+    if not SENDGRID_API_KEY:
+        return SendGridStatsResponse(**zeros, error="SENDGRID_API_KEY not configured")
+
+    end_d = date.today()
+    start_d = end_d - timedelta(days=29)
+    url = (
+        "https://api.sendgrid.com/v3/stats"
+        f"?start_date={start_d.isoformat()}&end_date={end_d.isoformat()}&aggregated_by=day"
+    )
+    try:
+        r = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {SENDGRID_API_KEY}"},
+            timeout=30,
+        )
+        if r.status_code != 200:
+            err = (r.text or "").strip()[:500] or f"SendGrid HTTP {r.status_code}"
+            return SendGridStatsResponse(**zeros, error=err)
+        payload = r.json()
+    except Exception as e:
+        return SendGridStatsResponse(**zeros, error=str(e)[:500])
+
+    totals = dict(zeros)
+    if isinstance(payload, list):
+        for day in payload:
+            for block in day.get("stats") or []:
+                m = block.get("metrics") or {}
+                totals["requests"] += int(m.get("requests") or 0)
+                totals["delivered"] += int(m.get("delivered") or 0)
+                totals["bounces"] += int(m.get("bounces") or 0)
+                totals["spam_reports"] += int(m.get("spam_reports") or 0)
+                totals["unsubscribes"] += int(m.get("unsubscribes") or 0)
+                o = m.get("opens")
+                if o is None:
+                    o = m.get("unique_opens")
+                totals["opens"] += int(o or 0)
+                c = m.get("clicks")
+                if c is None:
+                    c = m.get("unique_clicks")
+                totals["clicks"] += int(c or 0)
+
+    return SendGridStatsResponse(**totals, error=None)
+
+
+@app.get("/analytics/email", response_model=EmailAnalyticsResponse)
+def analytics_email_aggregate(db: Session = Depends(get_db)):
+    total_sent = int(
+        db.query(func.coalesce(func.sum(CampaignLog.total_sent), 0)).scalar() or 0
+    )
+    total_failed = int(
+        db.query(func.coalesce(func.sum(CampaignLog.total_failed), 0)).scalar() or 0
+    )
+    total_skipped = int(
+        db.query(func.coalesce(func.sum(CampaignLog.total_skipped), 0)).scalar() or 0
+    )
+    total_campaigns = int(db.query(func.count(CampaignLog.id)).scalar() or 0)
+    total_contacts = int(db.query(func.count(Contact.id)).scalar() or 0)
+    total_unsubscribes = int(db.query(func.count(Unsubscribe.id)).scalar() or 0)
+
+    last_row = (
+        db.query(CampaignLog.date_sent)
+        .order_by(CampaignLog.date_sent.desc(), CampaignLog.id.desc())
+        .first()
+    )
+    last_send_date = last_row[0] if last_row else None
+
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    campaigns_this_week = (
+        db.query(func.count(CampaignLog.id))
+        .filter(
+            and_(
+                CampaignLog.date_sent.isnot(None),
+                CampaignLog.date_sent >= week_ago,
+            )
+        )
+        .scalar()
+        or 0
+    )
+    campaigns_this_week = int(campaigns_this_week)
+
+    average_send_size = (
+        round(total_sent / total_campaigns, 1) if total_campaigns else 0.0
+    )
+
+    return EmailAnalyticsResponse(
+        total_sent=total_sent,
+        total_failed=total_failed,
+        total_skipped=total_skipped,
+        total_campaigns=total_campaigns,
+        total_contacts=total_contacts,
+        total_unsubscribes=total_unsubscribes,
+        last_send_date=last_send_date,
+        campaigns_this_week=campaigns_this_week,
+        average_send_size=average_send_size,
+    )
+
+
+@app.get("/analytics/campaigns", response_model=list[CampaignAnalyticsRow])
+def analytics_campaigns_list(db: Session = Depends(get_db)):
+    rows = (
+        db.query(CampaignLog)
+        .order_by(CampaignLog.date_sent.desc(), CampaignLog.id.desc())
+        .all()
+    )
+    out: list[CampaignAnalyticsRow] = []
+    for c in rows:
+        sent, failed = c.total_sent, c.total_failed
+        denom = sent + failed
+        delivery_rate = round(100.0 * sent / denom, 1) if denom else 0.0
+        out.append(
+            CampaignAnalyticsRow(
+                id=c.id,
+                campaign_name=c.campaign_name,
+                file_used=c.file_used,
+                total_sent=c.total_sent,
+                total_failed=c.total_failed,
+                total_skipped=c.total_skipped,
+                date_sent=c.date_sent,
+                delivery_rate=delivery_rate,
+            )
+        )
+    return out
+
+
+@app.get("/analytics/sendgrid", response_model=SendGridStatsResponse)
+def analytics_sendgrid_stats():
+    return _fetch_sendgrid_last_30_days()
