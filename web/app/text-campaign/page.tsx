@@ -42,7 +42,8 @@ export default function TextCampaignSetupPage() {
 
   const messageValid =
     message.trim().length > 0 && message.trim().length <= SMS_MAX;
-  const sendDisabled =
+  /** True when the primary send / confirm actions should be disabled. */
+  const testSendBlocked =
     sending ||
     !messageValid ||
     (!smsTestMode && !fileName.trim());
@@ -199,7 +200,7 @@ export default function TextCampaignSetupPage() {
             <Button
               className="bg-[#2d6e3e] hover:bg-[#256035]"
               onClick={() => setSendOpen(true)}
-              disabled={sendDisabled}
+              disabled={testSendBlocked}
             >
               {smsTestMode ? "Send Test SMS" : "Send SMS"}
             </Button>
@@ -348,7 +349,7 @@ export default function TextCampaignSetupPage() {
             </Button>
             <Button
               className="bg-[#2d6e3e] hover:bg-[#256035]"
-              disabled={sendDisabled}
+              disabled={testSendBlocked}
               onClick={() => void runSend()}
             >
               {sending
