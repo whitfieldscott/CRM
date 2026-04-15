@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api, getApiErrorMessage } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
 import type {
-  CampaignAnalyticsRow,
   SendGridSeriesResponse,
   SendGridStats,
+  SmsSeriesResponse,
   SmsSummaryAnalytics,
   SuppressionListResponse,
 } from "@/types/analytics";
@@ -63,8 +62,18 @@ function deliveryRateClass(rate: number): string {
 const PRINT_STYLE = `
 @media print {
   body * { visibility: hidden !important; }
-  #marketing-report-print, #marketing-report-print * { visibility: visible !important; }
-  #marketing-report-print {
+  body[data-print-target="email"] #marketing-email-reports,
+  body[data-print-target="email"] #marketing-email-reports * { visibility: visible !important; }
+  body[data-print-target="email"] #marketing-email-reports {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    padding: 0 12px !important;
+  }
+  body[data-print-target="text"] #marketing-text-reports,
+  body[data-print-target="text"] #marketing-text-reports * { visibility: visible !important; }
+  body[data-print-target="text"] #marketing-text-reports {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
@@ -77,18 +86,31 @@ const PRINT_STYLE = `
 export default function MarketingPage() {
   const [sendgrid, setSendgrid] = useState<SendGridStats | null>(null);
   const [smsSummary, setSmsSummary] = useState<SmsSummaryAnalytics | null>(null);
-  const [campaigns, setCampaigns] = useState<CampaignAnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshingSg, setRefreshingSg] = useState(false);
 
-  const [granularity, setGranularity] = useState<"day" | "week" | "month">("day");
-  const [series, setSeries] = useState<SendGridSeriesResponse | null>(null);
-  const [seriesLoading, setSeriesLoading] = useState(false);
+  const [emailGranularity, setEmailGranularity] = useState<"day" | "week" | "month">(
+    "day"
+  );
+  const [emailSeries, setEmailSeries] = useState<SendGridSeriesResponse | null>(null);
+  const [emailSeriesLoading, setEmailSeriesLoading] = useState(false);
+
+  const [smsGranularity, setSmsGranularity] = useState<"day" | "week" | "month">("day");
+  const [smsSeries, setSmsSeries] = useState<SmsSeriesResponse | null>(null);
+  const [smsSeriesLoading, setSmsSeriesLoading] = useState(false);
 
   const [bounces, setBounces] = useState<SuppressionListResponse | null>(null);
   const [unsubs, setUnsubs] = useState<SuppressionListResponse | null>(null);
   const [supLoading, setSupLoading] = useState(true);
   const [supActionKey, setSupActionKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const clear = () => {
+      delete document.body.dataset.printTarget;
+    };
+    window.addEventListener("afterprint", clear);
+    return () => window.removeEventListener("afterprint", clear);
+  }, []);
 
   const loadSendgrid = useCallback(async () => {
     const { data } = await api.get<SendGridStats>("/analytics/sendgrid");
@@ -100,26 +122,36 @@ export default function MarketingPage() {
     setSmsSummary(data);
   }, []);
 
-  const loadCampaigns = useCallback(async () => {
-    const { data } = await api.get<CampaignAnalyticsRow[]>("/analytics/campaigns");
-    setCampaigns(data);
-  }, []);
-
-  const loadSeries = useCallback(async () => {
-    setSeriesLoading(true);
+  const loadEmailSeries = useCallback(async () => {
+    setEmailSeriesLoading(true);
     try {
       const { data } = await api.get<SendGridSeriesResponse>(
         "/analytics/sendgrid/series",
-        { params: { granularity } }
+        { params: { granularity: emailGranularity } }
       );
-      setSeries(data);
+      setEmailSeries(data);
     } catch (e) {
       toast.error(getApiErrorMessage(e));
-      setSeries(null);
+      setEmailSeries(null);
     } finally {
-      setSeriesLoading(false);
+      setEmailSeriesLoading(false);
     }
-  }, [granularity]);
+  }, [emailGranularity]);
+
+  const loadSmsSeries = useCallback(async () => {
+    setSmsSeriesLoading(true);
+    try {
+      const { data } = await api.get<SmsSeriesResponse>("/analytics/sms/series", {
+        params: { granularity: smsGranularity },
+      });
+      setSmsSeries(data);
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+      setSmsSeries(null);
+    } finally {
+      setSmsSeriesLoading(false);
+    }
+  }, [smsGranularity]);
 
   const loadSuppressions = useCallback(async () => {
     setSupLoading(true);
@@ -140,27 +172,31 @@ export default function MarketingPage() {
   const loadCore = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadSendgrid(), loadSmsSummary(), loadCampaigns()]);
+      await Promise.all([loadSendgrid(), loadSmsSummary()]);
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [loadSendgrid, loadSmsSummary, loadCampaigns]);
+  }, [loadSendgrid, loadSmsSummary]);
 
   useEffect(() => {
     void loadCore();
   }, [loadCore]);
 
   useEffect(() => {
-    void loadSeries();
-  }, [loadSeries]);
+    void loadEmailSeries();
+  }, [loadEmailSeries]);
+
+  useEffect(() => {
+    void loadSmsSeries();
+  }, [loadSmsSeries]);
 
   useEffect(() => {
     void loadSuppressions();
   }, [loadSuppressions]);
 
-  const refreshSendgrid = useCallback(async () => {
+  const refreshSummaries = useCallback(async () => {
     setRefreshingSg(true);
     try {
       await Promise.all([loadSendgrid(), loadSmsSummary()]);
@@ -176,13 +212,25 @@ export default function MarketingPage() {
   const openRate = sendgrid ? pct(sendgrid.opens, sendgrid.delivered) : 0;
   const clickRate = sendgrid ? pct(sendgrid.clicks, sendgrid.delivered) : 0;
 
-  const chartData =
-    series?.points.map((p) => ({
+  const smsDeliveryRate = smsSummary
+    ? pct(smsSummary.total_sent, smsSummary.total_sent + smsSummary.total_failed)
+    : 0;
+
+  const emailChartData =
+    emailSeries?.points.map((p) => ({
       period: p.period,
       Delivered: p.delivered,
       Opens: p.opens,
       Clicks: p.clicks,
       Bounces: p.bounces,
+    })) ?? [];
+
+  const smsChartData =
+    smsSeries?.points.map((p) => ({
+      period: p.period,
+      "SMS Sent": p.sent,
+      "SMS Failed": p.failed,
+      "SMS Skipped": p.skipped,
     })) ?? [];
 
   function actionKey(kind: "bounce" | "unsubscribe", email: string, op: string) {
@@ -221,12 +269,25 @@ export default function MarketingPage() {
     }
   }
 
-  function printReport() {
+  function printEmailReport() {
+    document.body.dataset.printTarget = "email";
     window.print();
   }
 
-  const granularityLabel =
-    granularity === "day" ? "Day" : granularity === "week" ? "Week" : "Month";
+  function printTextReport() {
+    document.body.dataset.printTarget = "text";
+    window.print();
+  }
+
+  const emailGranularityLabel =
+    emailGranularity === "day"
+      ? "Day"
+      : emailGranularity === "week"
+        ? "Week"
+        : "Month";
+
+  const smsGranularityLabel =
+    smsGranularity === "day" ? "Day" : smsGranularity === "week" ? "Week" : "Month";
 
   return (
     <div className="space-y-10">
@@ -235,18 +296,18 @@ export default function MarketingPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Marketing Analytics</h1>
         <p className="text-muted-foreground">
-          Email campaign performance and deliverability
+          Email and SMS performance, SendGrid deliverability, and suppression lists
         </p>
       </div>
 
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">Reports</h2>
+          <h2 className="text-lg font-semibold tracking-tight">Email reports</h2>
           <div className="flex flex-wrap items-center gap-2 no-print">
             <Select
-              value={granularity}
+              value={emailGranularity}
               onValueChange={(v) =>
-                setGranularity(v as "day" | "week" | "month")
+                setEmailGranularity(v as "day" | "week" | "month")
               }
             >
               <SelectTrigger className="w-[160px] border-[#2d6e3e]/40">
@@ -263,34 +324,40 @@ export default function MarketingPage() {
               variant="outline"
               size="sm"
               className="border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
-              onClick={() => printReport()}
+              onClick={() => printEmailReport()}
             >
               Print to PDF
             </Button>
           </div>
         </div>
 
-        <div id="marketing-report-print" className="rounded-lg border border-[#2d6e3e]/20 bg-white p-4 shadow-sm">
+        <div
+          id="marketing-email-reports"
+          className="rounded-lg border border-[#2d6e3e]/20 bg-white p-4 shadow-sm"
+        >
           <div className="mb-4 hidden print:block">
-            <h2 className="text-xl font-bold">SendGrid report · {granularityLabel}</h2>
+            <h2 className="text-xl font-bold">Email report · {emailGranularityLabel}</h2>
             <p className="text-sm text-muted-foreground">
-              Delivered, opens, clicks, and bounces by period
+              Delivered, opens, clicks, and bounces (SendGrid)
             </p>
           </div>
-          {seriesLoading ? (
+          {emailSeriesLoading ? (
             <Skeleton className="h-[320px] w-full" />
-          ) : series?.error ? (
+          ) : emailSeries?.error ? (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              {series.error}
+              {emailSeries.error}
             </p>
-          ) : chartData.length === 0 ? (
+          ) : emailChartData.length === 0 ? (
             <p className="py-16 text-center text-sm text-muted-foreground">
               No series data for this range.
             </p>
           ) : (
             <div className="h-[min(360px,50vh)] w-full min-h-[280px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <LineChart
+                  data={emailChartData}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} width={48} />
@@ -333,15 +400,13 @@ export default function MarketingPage() {
 
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Live deliverability (last 30 days)
-          </h2>
+          <h2 className="text-lg font-semibold tracking-tight">Email summary</h2>
           <Button
             variant="outline"
             size="sm"
-            className="w-full border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10 sm:w-auto"
+            className="w-full border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10 sm:w-auto no-print"
             disabled={refreshingSg}
-            onClick={() => void refreshSendgrid()}
+            onClick={() => void refreshSummaries()}
           >
             {refreshingSg ? (
               <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
@@ -354,7 +419,7 @@ export default function MarketingPage() {
         <Card className="border-[#2d6e3e]/25 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Email summary</CardTitle>
-            <CardDescription>Data pulled live from SendGrid</CardDescription>
+            <CardDescription>Last 30 days from SendGrid (live)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading ? (
@@ -436,16 +501,110 @@ export default function MarketingPage() {
             )}
           </CardContent>
         </Card>
+      </section>
 
+      <section className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">Text reports</h2>
+          <div className="flex flex-wrap items-center gap-2 no-print">
+            <Select
+              value={smsGranularity}
+              onValueChange={(v) =>
+                setSmsGranularity(v as "day" | "week" | "month")
+              }
+            >
+              <SelectTrigger className="w-[160px] border-[#2d6e3e]/40">
+                <SelectValue placeholder="Period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="week">Week</SelectItem>
+                <SelectItem value="month">Month</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
+              onClick={() => printTextReport()}
+            >
+              Print to PDF
+            </Button>
+          </div>
+        </div>
+
+        <div
+          id="marketing-text-reports"
+          className="rounded-lg border border-[#2d6e3e]/20 bg-white p-4 shadow-sm"
+        >
+          <div className="mb-4 hidden print:block">
+            <h2 className="text-xl font-bold">SMS report · {smsGranularityLabel}</h2>
+            <p className="text-sm text-muted-foreground">
+              SMS sent, failed, and skipped by period (campaign logs)
+            </p>
+          </div>
+          {smsSeriesLoading ? (
+            <Skeleton className="h-[320px] w-full" />
+          ) : smsSeries?.error ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {smsSeries.error}
+            </p>
+          ) : smsChartData.length === 0 ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">
+              No SMS data for this range.
+            </p>
+          ) : (
+            <div className="h-[min(360px,50vh)] w-full min-h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={smsChartData}
+                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} width={48} />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="SMS Sent"
+                    stroke="#2d6e3e"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="SMS Failed"
+                    stroke="#dc2626"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="SMS Skipped"
+                    stroke="#ca8a04"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold tracking-tight">Text summary</h2>
         <Card className="border-[#2d6e3e]/25 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base">Text summary</CardTitle>
-            <CardDescription>Totals from SMS campaign logs (Twilio sends)</CardDescription>
+            <CardTitle className="text-base">SMS campaign totals</CardTitle>
+            <CardDescription>Aggregated from all rows in sms_campaign_logs</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {loading ? (
-              <div className="grid gap-3 sm:grid-cols-3">
-                {Array.from({ length: 3 }).map((_, i) => (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
                   <Skeleton key={i} className="h-16 w-full" />
                 ))}
               </div>
@@ -453,7 +612,7 @@ export default function MarketingPage() {
               <div className="flex flex-wrap gap-3 rounded-lg border border-[#2d6e3e]/15 bg-[#2d6e3e]/5 p-4">
                 <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    SMS sent
+                    Total sent
                   </p>
                   <p className="text-lg font-bold tabular-nums text-[#2d6e3e]">
                     {(smsSummary?.total_sent ?? 0).toLocaleString()}
@@ -461,7 +620,7 @@ export default function MarketingPage() {
                 </div>
                 <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    SMS failed
+                    Total failed
                   </p>
                   <p className="text-lg font-bold tabular-nums">
                     {(smsSummary?.total_failed ?? 0).toLocaleString()}
@@ -469,11 +628,22 @@ export default function MarketingPage() {
                 </div>
                 <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    SMS skipped
+                    Total skipped
                   </p>
                   <p className="text-lg font-bold tabular-nums">
                     {(smsSummary?.total_skipped ?? 0).toLocaleString()}
                   </p>
+                </div>
+                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Delivery rate
+                  </p>
+                  <p
+                    className={`text-lg font-bold tabular-nums ${deliveryRateClass(smsDeliveryRate)}`}
+                  >
+                    {smsDeliveryRate.toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-muted-foreground">Sent ÷ (sent + failed)</p>
                 </div>
               </div>
             )}
@@ -631,66 +801,6 @@ export default function MarketingPage() {
                 )}
               </TabsContent>
             </Tabs>
-          </CardContent>
-        </Card>
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Campaign history</h2>
-        <Card className="border-[#2d6e3e]/20 shadow-sm">
-          <CardContent className="pt-6">
-            {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-              </div>
-            ) : campaigns.length === 0 ? (
-              <p className="py-12 text-center text-sm text-muted-foreground">
-                No data yet
-              </p>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Campaign name</TableHead>
-                    <TableHead>File used</TableHead>
-                    <TableHead className="text-right">Sent</TableHead>
-                    <TableHead className="text-right">Failed</TableHead>
-                    <TableHead className="text-right">Skipped</TableHead>
-                    <TableHead className="text-right">Delivery rate</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {campaigns.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell className="whitespace-nowrap text-sm">
-                        {formatDateTime(row.date_sent)}
-                      </TableCell>
-                      <TableCell className="font-medium">{row.campaign_name}</TableCell>
-                      <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
-                        {row.file_used || "—"}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {row.total_sent}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {row.total_failed}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">
-                        {row.total_skipped}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right tabular-nums ${deliveryRateClass(row.delivery_rate)}`}
-                      >
-                        {row.delivery_rate.toFixed(1)}%
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
           </CardContent>
         </Card>
       </section>

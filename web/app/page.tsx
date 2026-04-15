@@ -85,7 +85,7 @@ export default function DashboardPage() {
           asChild
           className="bg-[#2d6e3e] hover:bg-[#256035]"
         >
-          <Link href="/email">
+          <Link href="/campaigns">
             <Mail className="mr-2 h-4 w-4" />
             Quick send
           </Link>

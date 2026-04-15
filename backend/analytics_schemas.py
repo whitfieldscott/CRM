@@ -75,3 +75,16 @@ class SmsSummaryAnalyticsResponse(BaseModel):
     total_sent: int
     total_failed: int
     total_skipped: int
+
+
+class SmsSeriesPoint(BaseModel):
+    period: str
+    sent: int
+    failed: int
+    skipped: int
+
+
+class SmsSeriesResponse(BaseModel):
+    granularity: str
+    points: list[SmsSeriesPoint]
+    error: Optional[str] = None

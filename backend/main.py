@@ -1,5 +1,6 @@
 import io
 import re
+from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Optional
@@ -33,6 +34,8 @@ from analytics_schemas import (
     SuppressionActionBody,
     SuppressionEntry,
     SuppressionListResponse,
+    SmsSeriesPoint,
+    SmsSeriesResponse,
     SmsSummaryAnalyticsResponse,
 )
 from schemas import (
@@ -1370,6 +1373,96 @@ def analytics_sms_summary_aggregate(db: Session = Depends(get_db)):
         total_failed=total_failed,
         total_skipped=total_skipped,
     )
+
+
+def _sms_campaign_series(db: Session, granularity: str) -> SmsSeriesResponse:
+    agg = {"day": "day", "week": "week", "month": "month"}.get(
+        granularity, "day"
+    )
+    end_d = date.today()
+    if agg == "day":
+        start_d = end_d - timedelta(days=29)
+    elif agg == "week":
+        start_d = end_d - timedelta(days=83)
+    else:
+        start_d = end_d - timedelta(days=364)
+
+    start_ts = datetime.combine(start_d, datetime.min.time())
+    end_ts = datetime.combine(end_d, datetime.max.time())
+
+    rows = (
+        db.query(SmsCampaignLog)
+        .filter(
+            SmsCampaignLog.date_sent.isnot(None),
+            SmsCampaignLog.date_sent >= start_ts,
+            SmsCampaignLog.date_sent <= end_ts,
+        )
+        .all()
+    )
+
+    sums: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"sent": 0, "failed": 0, "skipped": 0}
+    )
+
+    def bucket_key(bd: date) -> str:
+        if agg == "day":
+            return bd.isoformat()
+        if agg == "week":
+            monday = bd - timedelta(days=bd.weekday())
+            return monday.isoformat()
+        return bd.strftime("%Y-%m")
+
+    for r in rows:
+        if not r.date_sent:
+            continue
+        bd = (
+            r.date_sent.date()
+            if isinstance(r.date_sent, datetime)
+            else r.date_sent
+        )
+        k = bucket_key(bd)
+        sums[k]["sent"] += int(r.total_sent or 0)
+        sums[k]["failed"] += int(r.total_failed or 0)
+        sums[k]["skipped"] += int(r.total_skipped or 0)
+
+    period_keys: list[str] = []
+    if agg == "day":
+        cur = start_d
+        while cur <= end_d:
+            period_keys.append(cur.isoformat())
+            cur += timedelta(days=1)
+    elif agg == "week":
+        cur = start_d - timedelta(days=start_d.weekday())
+        while cur <= end_d:
+            period_keys.append(cur.isoformat())
+            cur += timedelta(days=7)
+    else:
+        y, m = start_d.year, start_d.month
+        while (y, m) <= (end_d.year, end_d.month):
+            period_keys.append(f"{y:04d}-{m:02d}")
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+    points = [
+        SmsSeriesPoint(
+            period=k,
+            sent=sums[k]["sent"],
+            failed=sums[k]["failed"],
+            skipped=sums[k]["skipped"],
+        )
+        for k in period_keys
+    ]
+    return SmsSeriesResponse(granularity=granularity, points=points, error=None)
+
+
+@app.get("/analytics/sms/series", response_model=SmsSeriesResponse)
+def analytics_sms_series(
+    granularity: Literal["day", "week", "month"] = Query("day"),
+    db: Session = Depends(get_db),
+):
+    return _sms_campaign_series(db, granularity)
 
 
 @app.get("/analytics/campaigns", response_model=list[CampaignAnalyticsRow])

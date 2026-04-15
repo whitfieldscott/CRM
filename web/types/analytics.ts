@@ -63,3 +63,16 @@ export type SmsSummaryAnalytics = {
   total_failed: number;
   total_skipped: number;
 };
+
+export type SmsSeriesPoint = {
+  period: string;
+  sent: number;
+  failed: number;
+  skipped: number;
+};
+
+export type SmsSeriesResponse = {
+  granularity: string;
+  points: SmsSeriesPoint[];
+  error: string | null;
+};

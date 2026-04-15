@@ -92,14 +92,14 @@ const NAV: NavTop[] = [
       {
         kind: "leaf",
         id: "marketing-email-setup",
-        href: "/email",
+        href: "/campaigns",
         label: "Email - Campaign Setup",
         icon: Mail,
       },
       {
         kind: "leaf",
         id: "marketing-email-history",
-        href: "/campaigns",
+        href: "/email-history",
         label: "Email - Campaign History",
         icon: Megaphone,
       },
