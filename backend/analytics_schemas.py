@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -38,3 +38,34 @@ class SendGridStatsResponse(BaseModel):
     delivered: int
     requests: int
     error: Optional[str] = None
+
+
+class SendGridSeriesPoint(BaseModel):
+    period: str
+    delivered: int
+    opens: int
+    clicks: int
+    bounces: int
+
+
+class SendGridSeriesResponse(BaseModel):
+    granularity: str
+    points: list[SendGridSeriesPoint]
+    error: Optional[str] = None
+
+
+class SuppressionEntry(BaseModel):
+    email: str
+    reason: str
+    date: str
+    marked_follow_up: bool = False
+
+
+class SuppressionListResponse(BaseModel):
+    items: list[SuppressionEntry]
+    error: Optional[str] = None
+
+
+class SuppressionActionBody(BaseModel):
+    kind: Literal["bounce", "unsubscribe"]
+    email: str

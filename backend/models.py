@@ -106,6 +106,19 @@ class SmsCampaignLog(Base):
     date_sent = Column(DateTime, default=datetime.utcnow)
 
 
+class MarketingSuppressionFlag(Base):
+    """Audit / workflow flags for SendGrid suppression list actions."""
+
+    __tablename__ = "marketing_suppression_flags"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, nullable=False, index=True)
+    kind = Column(String, nullable=False)  # bounce | unsubscribe
+    action = Column(String, nullable=False)  # deleted | follow_up
+    reason = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class EmailSendRecord(Base):
     """Per-recipient send history (supports GET /clients/{id}/emails)."""
 

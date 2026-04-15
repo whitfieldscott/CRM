@@ -2,7 +2,8 @@ import io
 import re
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -11,7 +12,7 @@ from sms_sender import send_bulk_sms
 from sms_service import TEST_SMS_TO, normalize_us_e164, twilio_configured
 from database import SessionLocal, engine, Base
 from email_service import FROM_EMAIL, SENDGRID_API_KEY, send_email
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from models import (
     CampaignLog,
@@ -19,16 +20,25 @@ from models import (
     ClientNote,
     Contact,
     EmailSendRecord,
+    MarketingSuppressionFlag,
     SmsCampaignLog,
     Unsubscribe,
 )
 from analytics_schemas import (
     CampaignAnalyticsRow,
     EmailAnalyticsResponse,
+    SendGridSeriesPoint,
+    SendGridSeriesResponse,
     SendGridStatsResponse,
+    SuppressionActionBody,
+    SuppressionEntry,
+    SuppressionListResponse,
 )
 from schemas import (
     CSVImportSummary,
+    TabularImportConfirmSummary,
+    TabularImportPreviewResponse,
+    TabularImportRow,
     CampaignLogCreate,
     CampaignLogResponse,
     CampaignSendBody,
@@ -136,6 +146,23 @@ def _safe_data_csv_file_name(name: str) -> str:
     return n
 
 
+# Map normalized tabular import headers -> canonical column (name, business, phone, email)
+TABULAR_COL_ALIASES = {
+    "name": "name",
+    "contact_name": "name",
+    "full_name": "name",
+    "business": "business",
+    "company": "business",
+    "business_name": "business",
+    "organization": "business",
+    "phone": "phone",
+    "phone_number": "phone",
+    "mobile": "phone",
+    "email": "email",
+    "e_mail": "email",
+}
+
+
 # Map normalized CSV column name -> Contact attribute name
 IMPORT_COLUMN_MAP = {
     "email": "email",
@@ -176,6 +203,130 @@ def _valid_email(email: str) -> bool:
     if not email or "@" not in email:
         return False
     return bool(re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email.strip()))
+
+
+def _sendgrid_auth_headers() -> dict:
+    return {"Authorization": f"Bearer {SENDGRID_API_KEY}"}
+
+
+def _sendgrid_block_metrics(m: dict) -> dict:
+    o = m.get("opens")
+    if o is None:
+        o = m.get("unique_opens")
+    c = m.get("clicks")
+    if c is None:
+        c = m.get("unique_clicks")
+    return {
+        "requests": int(m.get("requests") or 0),
+        "delivered": int(m.get("delivered") or 0),
+        "bounces": int(m.get("bounces") or 0),
+        "spam_reports": int(m.get("spam_reports") or 0),
+        "unsubscribes": int(m.get("unsubscribes") or 0),
+        "opens": int(o or 0),
+        "clicks": int(c or 0),
+    }
+
+
+def _tabular_dataframe_from_bytes(raw: bytes, filename: str) -> pd.DataFrame:
+    name = (filename or "").lower()
+    bio = io.BytesIO(raw)
+    if name.endswith(".xlsx"):
+        try:
+            df = pd.read_excel(bio, engine="openpyxl")
+        except Exception as e:
+            raise HTTPException(
+                status_code=400, detail=f"Could not read Excel file: {e}"
+            ) from e
+    else:
+        try:
+            bio.seek(0)
+            df = pd.read_csv(bio)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not read CSV: {e}") from e
+
+    df.columns = [normalize_csv_header(str(c)) for c in df.columns]
+    canon_src: dict[str, str] = {}
+    for col in df.columns:
+        target = TABULAR_COL_ALIASES.get(col)
+        if target and target not in canon_src:
+            canon_src[target] = col
+    if "email" not in canon_src:
+        raise HTTPException(
+            status_code=400,
+            detail="File must include an Email column (or mappable header like email, e_mail).",
+        )
+    out = pd.DataFrame()
+    for key in ("name", "business", "phone", "email"):
+        if key in canon_src:
+            out[key] = df[canon_src[key]]
+        else:
+            out[key] = None
+    return out
+
+
+def _tabular_rows_from_df(df: pd.DataFrame) -> tuple[list[TabularImportRow], int, int]:
+    total_rows = int(len(df))
+    rows: list[TabularImportRow] = []
+    skipped = 0
+    seen: set[str] = set()
+    for _, r in df.iterrows():
+        raw_email = r.get("email")
+        if raw_email is None or (isinstance(raw_email, float) and pd.isna(raw_email)):
+            skipped += 1
+            continue
+        email = str(raw_email).strip().lower()
+        if not _valid_email(email):
+            skipped += 1
+            continue
+        if email in seen:
+            continue
+        seen.add(email)
+
+        def cell(k: str) -> Optional[str]:
+            v = r.get(k)
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return None
+            s = str(v).strip()
+            return s if s and s.lower() != "nan" else None
+
+        rows.append(
+            TabularImportRow(
+                name=cell("name"),
+                business=cell("business"),
+                phone=cell("phone"),
+                email=email,
+            )
+        )
+    return rows, total_rows, skipped
+
+
+def _format_sendgrid_suppression_date(val) -> str:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    if isinstance(val, (int, float)):
+        try:
+            return datetime.utcfromtimestamp(int(val)).strftime("%Y-%m-%d %H:%M UTC")
+        except (ValueError, OSError):
+            return str(int(val))
+    s = str(val).strip()
+    if s.isdigit():
+        try:
+            return datetime.utcfromtimestamp(int(s)).strftime("%Y-%m-%d %H:%M UTC")
+        except (ValueError, OSError):
+            return s
+    return s
+
+
+def _follow_up_emails_for_kind(db: Session, kind: str) -> set[str]:
+    q = (
+        db.query(MarketingSuppressionFlag.email)
+        .filter(
+            MarketingSuppressionFlag.kind == kind,
+            MarketingSuppressionFlag.action == "follow_up",
+        )
+        .distinct()
+    )
+    return {e[0].lower() for e in q.all() if e[0]}
 
 
 @app.on_event("startup")
@@ -955,11 +1106,7 @@ def _fetch_sendgrid_last_30_days() -> SendGridStatsResponse:
         f"?start_date={start_d.isoformat()}&end_date={end_d.isoformat()}&aggregated_by=day"
     )
     try:
-        r = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {SENDGRID_API_KEY}"},
-            timeout=30,
-        )
+        r = requests.get(url, headers=_sendgrid_auth_headers(), timeout=30)
         if r.status_code != 200:
             err = (r.text or "").strip()[:500] or f"SendGrid HTTP {r.status_code}"
             return SendGridStatsResponse(**zeros, error=err)
@@ -972,21 +1119,102 @@ def _fetch_sendgrid_last_30_days() -> SendGridStatsResponse:
         for day in payload:
             for block in day.get("stats") or []:
                 m = block.get("metrics") or {}
-                totals["requests"] += int(m.get("requests") or 0)
-                totals["delivered"] += int(m.get("delivered") or 0)
-                totals["bounces"] += int(m.get("bounces") or 0)
-                totals["spam_reports"] += int(m.get("spam_reports") or 0)
-                totals["unsubscribes"] += int(m.get("unsubscribes") or 0)
-                o = m.get("opens")
-                if o is None:
-                    o = m.get("unique_opens")
-                totals["opens"] += int(o or 0)
-                c = m.get("clicks")
-                if c is None:
-                    c = m.get("unique_clicks")
-                totals["clicks"] += int(c or 0)
+                part = _sendgrid_block_metrics(m)
+                for k in totals:
+                    totals[k] += part[k]
 
     return SendGridStatsResponse(**totals, error=None)
+
+
+def _fetch_sendgrid_series(granularity: str) -> SendGridSeriesResponse:
+    agg = {"day": "day", "week": "week", "month": "month"}.get(
+        granularity, "day"
+    )
+    end_d = date.today()
+    if agg == "day":
+        start_d = end_d - timedelta(days=29)
+    elif agg == "week":
+        start_d = end_d - timedelta(days=83)
+    else:
+        start_d = end_d - timedelta(days=364)
+
+    empty = SendGridSeriesResponse(granularity=granularity, points=[], error=None)
+    if not SENDGRID_API_KEY:
+        empty.error = "SENDGRID_API_KEY not configured"
+        return empty
+
+    url = (
+        "https://api.sendgrid.com/v3/stats"
+        f"?start_date={start_d.isoformat()}&end_date={end_d.isoformat()}&aggregated_by={agg}"
+    )
+    try:
+        r = requests.get(url, headers=_sendgrid_auth_headers(), timeout=45)
+        if r.status_code != 200:
+            err = (r.text or "").strip()[:500] or f"SendGrid HTTP {r.status_code}"
+            return SendGridSeriesResponse(
+                granularity=granularity, points=[], error=err
+            )
+        payload = r.json()
+    except Exception as e:
+        return SendGridSeriesResponse(
+            granularity=granularity, points=[], error=str(e)[:500]
+        )
+
+    points: list[SendGridSeriesPoint] = []
+    if isinstance(payload, list):
+        for bucket in payload:
+            period = str(bucket.get("date") or "")
+            d = o = cl = b = 0
+            for block in bucket.get("stats") or []:
+                m = block.get("metrics") or {}
+                part = _sendgrid_block_metrics(m)
+                d += part["delivered"]
+                o += part["opens"]
+                cl += part["clicks"]
+                b += part["bounces"]
+            if period:
+                points.append(
+                    SendGridSeriesPoint(
+                        period=period,
+                        delivered=d,
+                        opens=o,
+                        clicks=cl,
+                        bounces=b,
+                    )
+                )
+
+    return SendGridSeriesResponse(granularity=granularity, points=points, error=None)
+
+
+def _sendgrid_suppression_fetch(kind: Literal["bounce", "unsubscribe"]) -> tuple[list, Optional[str]]:
+    slug = "bounces" if kind == "bounce" else "unsubscribes"
+    if not SENDGRID_API_KEY:
+        return [], "SENDGRID_API_KEY not configured"
+    url = f"https://api.sendgrid.com/v3/suppression/{slug}?limit=500"
+    try:
+        r = requests.get(url, headers=_sendgrid_auth_headers(), timeout=45)
+        if r.status_code != 200:
+            return [], (r.text or "").strip()[:500] or f"SendGrid HTTP {r.status_code}"
+        data = r.json()
+    except Exception as e:
+        return [], str(e)[:500]
+    if isinstance(data, list):
+        return data, None
+    if isinstance(data, dict) and isinstance(data.get("emails"), list):
+        return data["emails"], None
+    return [], "Unexpected SendGrid response shape"
+
+
+def _sendgrid_suppression_delete(kind: Literal["bounce", "unsubscribe"], email: str) -> None:
+    slug = "bounces" if kind == "bounce" else "unsubscribes"
+    enc = quote(email.strip(), safe="")
+    url = f"https://api.sendgrid.com/v3/suppression/{slug}/{enc}"
+    r = requests.delete(url, headers=_sendgrid_auth_headers(), timeout=30)
+    if r.status_code not in (200, 204):
+        raise HTTPException(
+            status_code=400,
+            detail=(r.text or "").strip()[:500] or f"SendGrid HTTP {r.status_code}",
+        )
 
 
 @app.get("/analytics/email", response_model=EmailAnalyticsResponse)
@@ -1072,3 +1300,197 @@ def analytics_campaigns_list(db: Session = Depends(get_db)):
 @app.get("/analytics/sendgrid", response_model=SendGridStatsResponse)
 def analytics_sendgrid_stats():
     return _fetch_sendgrid_last_30_days()
+
+
+@app.get("/analytics/sendgrid/series", response_model=SendGridSeriesResponse)
+def analytics_sendgrid_series(
+    granularity: Literal["day", "week", "month"] = Query("day"),
+):
+    return _fetch_sendgrid_series(granularity)
+
+
+@app.get("/analytics/suppressions/bounces", response_model=SuppressionListResponse)
+def analytics_suppression_bounces(db: Session = Depends(get_db)):
+    raw, err = _sendgrid_suppression_fetch("bounce")
+    if err:
+        return SuppressionListResponse(items=[], error=err)
+    follow = _follow_up_emails_for_kind(db, "bounce")
+    items: list[SuppressionEntry] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        em = str(item.get("email") or "").strip().lower()
+        if not em:
+            continue
+        reason = str(item.get("reason") or item.get("bounce_reason") or "").strip()
+        items.append(
+            SuppressionEntry(
+                email=em,
+                reason=reason or "—",
+                date=_format_sendgrid_suppression_date(item.get("created")) or "—",
+                marked_follow_up=em in follow,
+            )
+        )
+    return SuppressionListResponse(items=items, error=None)
+
+
+@app.get("/analytics/suppressions/unsubscribes", response_model=SuppressionListResponse)
+def analytics_suppression_unsubscribes(db: Session = Depends(get_db)):
+    raw, err = _sendgrid_suppression_fetch("unsubscribe")
+    if err:
+        return SuppressionListResponse(items=[], error=err)
+    follow = _follow_up_emails_for_kind(db, "unsubscribe")
+    items: list[SuppressionEntry] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        em = str(item.get("email") or "").strip().lower()
+        if not em:
+            continue
+        reason = str(item.get("reason") or "").strip() or "Unsubscribed"
+        items.append(
+            SuppressionEntry(
+                email=em,
+                reason=reason,
+                date=_format_sendgrid_suppression_date(item.get("created")) or "—",
+                marked_follow_up=em in follow,
+            )
+        )
+    return SuppressionListResponse(items=items, error=None)
+
+
+@app.post("/analytics/suppressions/delete")
+def analytics_suppression_delete(body: SuppressionActionBody, db: Session = Depends(get_db)):
+    email = body.email.strip().lower()
+    if not _valid_email(email):
+        raise HTTPException(status_code=400, detail="Invalid email")
+    _sendgrid_suppression_delete(body.kind, email)
+    db.add(
+        MarketingSuppressionFlag(
+            email=email,
+            kind=body.kind,
+            action="deleted",
+            reason=None,
+        )
+    )
+    db.commit()
+    return {"ok": True, "email": email}
+
+
+@app.post("/analytics/suppressions/follow-up")
+def analytics_suppression_follow_up(
+    body: SuppressionActionBody, db: Session = Depends(get_db)
+):
+    email = body.email.strip().lower()
+    if not _valid_email(email):
+        raise HTTPException(status_code=400, detail="Invalid email")
+    db.add(
+        MarketingSuppressionFlag(
+            email=email,
+            kind=body.kind,
+            action="follow_up",
+            reason=None,
+        )
+    )
+    db.commit()
+    return {"ok": True, "email": email}
+
+
+@app.post("/contacts/import-tabular/preview", response_model=TabularImportPreviewResponse)
+async def import_tabular_preview(file: UploadFile = File(...)):
+    raw = await file.read()
+    df = _tabular_dataframe_from_bytes(raw, file.filename or "")
+    rows, total_rows, _skipped = _tabular_rows_from_df(df)
+    preview = rows[:100]
+    return TabularImportPreviewResponse(
+        preview=preview,
+        total_rows=total_rows,
+        total_valid=len(rows),
+    )
+
+
+@app.post("/contacts/import-tabular/confirm", response_model=TabularImportConfirmSummary)
+async def import_tabular_confirm(
+    file: UploadFile = File(...),
+    also_create_clients: str = Form("false"),
+    db: Session = Depends(get_db),
+):
+    also = str(also_create_clients).lower() in ("1", "true", "yes", "on")
+    raw = await file.read()
+    df = _tabular_dataframe_from_bytes(raw, file.filename or "")
+    rows, total_rows, skipped_invalid = _tabular_rows_from_df(df)
+
+    contacts_added = 0
+    contacts_updated = 0
+    clients_created = 0
+    clients_updated = 0
+
+    for row in rows:
+        email = row.email
+        existing = db.query(Contact).filter(Contact.email == email).first()
+        if existing:
+            if row.name and str(row.name).strip():
+                existing.name = str(row.name).strip()
+            if row.phone and str(row.phone).strip():
+                existing.phone = str(row.phone).strip()
+            if row.business and str(row.business).strip():
+                existing.company = str(row.business).strip()
+            contacts_updated += 1
+        else:
+            db.add(
+                Contact(
+                    email=email,
+                    name=(row.name or "").strip() or None,
+                    phone=(row.phone or "").strip() or None,
+                    company=(row.business or "").strip() or None,
+                    state="OK",
+                )
+            )
+            contacts_added += 1
+
+        if also:
+            biz = (row.business or "").strip() or None
+            nm = (row.name or "").strip() or None
+            client_name = (biz or nm or email.split("@")[0]).strip()[:255] or "Client"
+            existing_client = (
+                db.query(Client)
+                .filter(Client.primary_contact_email == email)
+                .first()
+            )
+            if existing_client:
+                existing_client.primary_contact_name = (
+                    nm or existing_client.primary_contact_name
+                )
+                if row.phone and str(row.phone).strip():
+                    existing_client.primary_contact_phone = str(row.phone).strip()
+                if biz:
+                    existing_client.name = client_name
+                clients_updated += 1
+            else:
+                db.add(
+                    Client(
+                        name=client_name,
+                        primary_contact_email=email,
+                        primary_contact_name=nm,
+                        primary_contact_phone=(
+                            str(row.phone).strip() if row.phone else None
+                        ),
+                        state="OK",
+                    )
+                )
+                clients_created += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"Import failed: {e}") from e
+
+    return TabularImportConfirmSummary(
+        contacts_added=contacts_added,
+        contacts_updated=contacts_updated,
+        clients_created=clients_created,
+        clients_updated=clients_updated,
+        skipped_invalid=skipped_invalid,
+        total_rows_processed=total_rows,
+    )

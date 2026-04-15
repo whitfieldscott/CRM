@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -215,5 +215,27 @@ class SettingsUpdate(BaseModel):
 class CSVImportSummary(BaseModel):
     added: int
     updated: int
+    skipped_invalid: int
+    total_rows_processed: int
+
+
+class TabularImportRow(BaseModel):
+    name: Optional[str] = None
+    business: Optional[str] = None
+    phone: Optional[str] = None
+    email: str
+
+
+class TabularImportPreviewResponse(BaseModel):
+    preview: list[TabularImportRow]
+    total_rows: int
+    total_valid: int
+
+
+class TabularImportConfirmSummary(BaseModel):
+    contacts_added: int
+    contacts_updated: int
+    clients_created: int
+    clients_updated: int
     skipped_invalid: int
     total_rows_processed: int
