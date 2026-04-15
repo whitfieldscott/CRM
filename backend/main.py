@@ -1309,8 +1309,7 @@ def analytics_sendgrid_series(
     return _fetch_sendgrid_series(granularity)
 
 
-@app.get("/analytics/suppressions/bounces", response_model=SuppressionListResponse)
-def analytics_suppression_bounces(db: Session = Depends(get_db)):
+def _suppression_bounces_response(db: Session) -> SuppressionListResponse:
     raw, err = _sendgrid_suppression_fetch("bounce")
     if err:
         return SuppressionListResponse(items=[], error=err)
@@ -1334,8 +1333,7 @@ def analytics_suppression_bounces(db: Session = Depends(get_db)):
     return SuppressionListResponse(items=items, error=None)
 
 
-@app.get("/analytics/suppressions/unsubscribes", response_model=SuppressionListResponse)
-def analytics_suppression_unsubscribes(db: Session = Depends(get_db)):
+def _suppression_unsubscribes_response(db: Session) -> SuppressionListResponse:
     raw, err = _sendgrid_suppression_fetch("unsubscribe")
     if err:
         return SuppressionListResponse(items=[], error=err)
@@ -1359,25 +1357,57 @@ def analytics_suppression_unsubscribes(db: Session = Depends(get_db)):
     return SuppressionListResponse(items=items, error=None)
 
 
-@app.post("/analytics/suppressions/delete")
-def analytics_suppression_delete(body: SuppressionActionBody, db: Session = Depends(get_db)):
-    email = body.email.strip().lower()
-    if not _valid_email(email):
+@app.get("/analytics/suppression/bounces", response_model=SuppressionListResponse)
+def analytics_suppression_bounces_list(db: Session = Depends(get_db)):
+    return _suppression_bounces_response(db)
+
+
+@app.get("/analytics/suppression/unsubscribes", response_model=SuppressionListResponse)
+def analytics_suppression_unsubscribes_list(db: Session = Depends(get_db)):
+    return _suppression_unsubscribes_response(db)
+
+
+@app.delete("/analytics/suppression/bounce")
+def analytics_suppression_delete_bounce(
+    email: str = Query(..., min_length=3), db: Session = Depends(get_db)
+):
+    em = email.strip().lower()
+    if not _valid_email(em):
         raise HTTPException(status_code=400, detail="Invalid email")
-    _sendgrid_suppression_delete(body.kind, email)
+    _sendgrid_suppression_delete("bounce", em)
     db.add(
         MarketingSuppressionFlag(
-            email=email,
-            kind=body.kind,
+            email=em,
+            kind="bounce",
             action="deleted",
             reason=None,
         )
     )
     db.commit()
-    return {"ok": True, "email": email}
+    return {"ok": True, "email": em}
 
 
-@app.post("/analytics/suppressions/follow-up")
+@app.delete("/analytics/suppression/unsubscribe")
+def analytics_suppression_delete_unsubscribe(
+    email: str = Query(..., min_length=3), db: Session = Depends(get_db)
+):
+    em = email.strip().lower()
+    if not _valid_email(em):
+        raise HTTPException(status_code=400, detail="Invalid email")
+    _sendgrid_suppression_delete("unsubscribe", em)
+    db.add(
+        MarketingSuppressionFlag(
+            email=em,
+            kind="unsubscribe",
+            action="deleted",
+            reason=None,
+        )
+    )
+    db.commit()
+    return {"ok": True, "email": em}
+
+
+@app.post("/analytics/suppression/follow-up")
 def analytics_suppression_follow_up(
     body: SuppressionActionBody, db: Session = Depends(get_db)
 ):

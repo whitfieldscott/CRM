@@ -31,3 +31,29 @@ export type SendGridStats = {
   requests: number;
   error: string | null;
 };
+
+export type SendGridSeriesPoint = {
+  period: string;
+  delivered: number;
+  opens: number;
+  clicks: number;
+  bounces: number;
+};
+
+export type SendGridSeriesResponse = {
+  granularity: string;
+  points: SendGridSeriesPoint[];
+  error: string | null;
+};
+
+export type SuppressionEntry = {
+  email: string;
+  reason: string;
+  date: string;
+  marked_follow_up: boolean;
+};
+
+export type SuppressionListResponse = {
+  items: SuppressionEntry[];
+  error: string | null;
+};

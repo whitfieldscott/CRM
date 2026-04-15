@@ -5,8 +5,9 @@ import { api, getApiErrorMessage } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type {
   CampaignAnalyticsRow,
-  EmailAnalytics,
+  SendGridSeriesResponse,
   SendGridStats,
+  SuppressionListResponse,
 } from "@/types/analytics";
 import { toast } from "sonner";
 import {
@@ -27,16 +28,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  AlertTriangle,
-  CheckCircle2,
-  Eye,
-  Mail,
-  Megaphone,
-  RefreshCw,
-  TriangleAlert,
-  Users,
-  XCircle,
-} from "lucide-react";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { RefreshCw } from "lucide-react";
+import {
+  CartesianGrid,
+  Legend,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 function pct(n: number, d: number): number {
   if (!d || !Number.isFinite(n) || !Number.isFinite(d)) return 0;
@@ -49,24 +59,34 @@ function deliveryRateClass(rate: number): string {
   return "font-semibold text-red-600";
 }
 
-function aggregateDeliveryRate(email: EmailAnalytics | null): number {
-  if (!email) return 0;
-  const d = email.total_sent + email.total_failed;
-  if (!d) return 0;
-  return Math.round((100 * email.total_sent) / d * 10) / 10;
+const PRINT_STYLE = `
+@media print {
+  body * { visibility: hidden !important; }
+  #marketing-report-print, #marketing-report-print * { visibility: visible !important; }
+  #marketing-report-print {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    padding: 0 12px !important;
+  }
 }
+`;
 
 export default function MarketingPage() {
-  const [email, setEmail] = useState<EmailAnalytics | null>(null);
   const [sendgrid, setSendgrid] = useState<SendGridStats | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignAnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshingSg, setRefreshingSg] = useState(false);
 
-  const loadEmail = useCallback(async () => {
-    const { data } = await api.get<EmailAnalytics>("/analytics/email");
-    setEmail(data);
-  }, []);
+  const [granularity, setGranularity] = useState<"day" | "week" | "month">("day");
+  const [series, setSeries] = useState<SendGridSeriesResponse | null>(null);
+  const [seriesLoading, setSeriesLoading] = useState(false);
+
+  const [bounces, setBounces] = useState<SuppressionListResponse | null>(null);
+  const [unsubs, setUnsubs] = useState<SuppressionListResponse | null>(null);
+  const [supLoading, setSupLoading] = useState(true);
+  const [supActionKey, setSupActionKey] = useState<string | null>(null);
 
   const loadSendgrid = useCallback(async () => {
     const { data } = await api.get<SendGridStats>("/analytics/sendgrid");
@@ -78,20 +98,60 @@ export default function MarketingPage() {
     setCampaigns(data);
   }, []);
 
-  const loadAll = useCallback(async () => {
+  const loadSeries = useCallback(async () => {
+    setSeriesLoading(true);
+    try {
+      const { data } = await api.get<SendGridSeriesResponse>(
+        "/analytics/sendgrid/series",
+        { params: { granularity } }
+      );
+      setSeries(data);
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+      setSeries(null);
+    } finally {
+      setSeriesLoading(false);
+    }
+  }, [granularity]);
+
+  const loadSuppressions = useCallback(async () => {
+    setSupLoading(true);
+    try {
+      const [b, u] = await Promise.all([
+        api.get<SuppressionListResponse>("/analytics/suppression/bounces"),
+        api.get<SuppressionListResponse>("/analytics/suppression/unsubscribes"),
+      ]);
+      setBounces(b.data);
+      setUnsubs(u.data);
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setSupLoading(false);
+    }
+  }, []);
+
+  const loadCore = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadEmail(), loadSendgrid(), loadCampaigns()]);
+      await Promise.all([loadSendgrid(), loadCampaigns()]);
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [loadEmail, loadSendgrid, loadCampaigns]);
+  }, [loadSendgrid, loadCampaigns]);
 
   useEffect(() => {
-    void loadAll();
-  }, [loadAll]);
+    void loadCore();
+  }, [loadCore]);
+
+  useEffect(() => {
+    void loadSeries();
+  }, [loadSeries]);
+
+  useEffect(() => {
+    void loadSuppressions();
+  }, [loadSuppressions]);
 
   const refreshSendgrid = useCallback(async () => {
     setRefreshingSg(true);
@@ -105,13 +165,66 @@ export default function MarketingPage() {
     }
   }, [loadSendgrid]);
 
-  const dr = aggregateDeliveryRate(email);
   const deliveredPct = sendgrid ? pct(sendgrid.delivered, sendgrid.requests) : 0;
   const openRate = sendgrid ? pct(sendgrid.opens, sendgrid.delivered) : 0;
   const clickRate = sendgrid ? pct(sendgrid.clicks, sendgrid.delivered) : 0;
 
+  const chartData =
+    series?.points.map((p) => ({
+      period: p.period,
+      Delivered: p.delivered,
+      Opens: p.opens,
+      Clicks: p.clicks,
+      Bounces: p.bounces,
+    })) ?? [];
+
+  function actionKey(kind: "bounce" | "unsubscribe", email: string, op: string) {
+    return `${kind}:${email}:${op}`;
+  }
+
+  async function deleteSuppression(kind: "bounce" | "unsubscribe", email: string) {
+    const path =
+      kind === "bounce"
+        ? "/analytics/suppression/bounce"
+        : "/analytics/suppression/unsubscribe";
+    const k = actionKey(kind, email, "del");
+    setSupActionKey(k);
+    try {
+      await api.delete(path, { params: { email } });
+      toast.success("Removed from SendGrid.");
+      await loadSuppressions();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setSupActionKey(null);
+    }
+  }
+
+  async function flagFollowUp(kind: "bounce" | "unsubscribe", email: string) {
+    const k = actionKey(kind, email, "flag");
+    setSupActionKey(k);
+    try {
+      await api.post("/analytics/suppression/follow-up", { kind, email });
+      toast.success("Flagged for follow-up.");
+      await loadSuppressions();
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setSupActionKey(null);
+    }
+  }
+
+  function printReport() {
+    window.print();
+  }
+
+  const granularityLabel =
+    granularity === "day" ? "Day" : granularity === "week" ? "Week" : "Month";
+
   return (
     <div className="space-y-10">
+      <style dangerouslySetInnerHTML={{ __html: PRINT_STYLE }} />
+
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Marketing Analytics</h1>
         <p className="text-muted-foreground">
@@ -119,142 +232,98 @@ export default function MarketingPage() {
         </p>
       </div>
 
-      {/* Section 1 — key metrics */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Key metrics</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total sent (all time)</CardTitle>
-              <Mail className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-24" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(email?.total_sent ?? 0).toLocaleString()}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Delivery rate</CardTitle>
-              <CheckCircle2 className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-20" />
-              ) : (
-                <p className={`text-2xl font-bold tabular-nums ${deliveryRateClass(dr)}`}>
-                  {dr.toFixed(1)}%
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">From campaign logs</p>
-            </CardContent>
-          </Card>
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total opens</CardTitle>
-              <Eye className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-24" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(sendgrid?.opens ?? 0).toLocaleString()}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">SendGrid · last 30 days</p>
-            </CardContent>
-          </Card>
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Unsubscribes</CardTitle>
-              <XCircle className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-16" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(email?.total_unsubscribes ?? 0).toLocaleString()}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">On file in CRM</p>
-            </CardContent>
-          </Card>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">Reports</h2>
+          <div className="flex flex-wrap items-center gap-2 no-print">
+            <Select
+              value={granularity}
+              onValueChange={(v) =>
+                setGranularity(v as "day" | "week" | "month")
+              }
+            >
+              <SelectTrigger className="w-[160px] border-[#2d6e3e]/40">
+                <SelectValue placeholder="Period" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="day">Day</SelectItem>
+                <SelectItem value="week">Week</SelectItem>
+                <SelectItem value="month">Month</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
+              onClick={() => printReport()}
+            >
+              Print to PDF
+            </Button>
+          </div>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total campaigns</CardTitle>
-              <Megaphone className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-12" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(email?.total_campaigns ?? 0).toLocaleString()}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total contacts</CardTitle>
-              <Users className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-20" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(email?.total_contacts ?? 0).toLocaleString()}
-                </p>
-              )}
-            </CardContent>
-          </Card>
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Bounces</CardTitle>
-              <TriangleAlert className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-16" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(sendgrid?.bounces ?? 0).toLocaleString()}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">SendGrid · last 30 days</p>
-            </CardContent>
-          </Card>
-          <Card className="border-[#2d6e3e]/20 shadow-sm">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Spam reports</CardTitle>
-              <AlertTriangle className="h-4 w-4 text-[#2d6e3e]" />
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <Skeleton className="h-9 w-12" />
-              ) : (
-                <p className="text-2xl font-bold tabular-nums">
-                  {(sendgrid?.spam_reports ?? 0).toLocaleString()}
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground">SendGrid · last 30 days</p>
-            </CardContent>
-          </Card>
+        <div id="marketing-report-print" className="rounded-lg border border-[#2d6e3e]/20 bg-white p-4 shadow-sm">
+          <div className="mb-4 hidden print:block">
+            <h2 className="text-xl font-bold">SendGrid report · {granularityLabel}</h2>
+            <p className="text-sm text-muted-foreground">
+              Delivered, opens, clicks, and bounces by period
+            </p>
+          </div>
+          {seriesLoading ? (
+            <Skeleton className="h-[320px] w-full" />
+          ) : series?.error ? (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {series.error}
+            </p>
+          ) : chartData.length === 0 ? (
+            <p className="py-16 text-center text-sm text-muted-foreground">
+              No series data for this range.
+            </p>
+          ) : (
+            <div className="h-[min(360px,50vh)] w-full min-h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} width={48} />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="Delivered"
+                    stroke="#2d6e3e"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="Opens"
+                    stroke="#2563eb"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="Clicks"
+                    stroke="#ca8a04"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="Bounces"
+                    stroke="#dc2626"
+                    strokeWidth={2}
+                    dot={{ r: 2 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </section>
 
-      {/* Section 2 — SendGrid */}
       <section className="space-y-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-lg font-semibold tracking-tight">
@@ -362,7 +431,160 @@ export default function MarketingPage() {
         </Card>
       </section>
 
-      {/* Section 3 — campaign table */}
+      <section className="space-y-4">
+        <h2 className="text-lg font-semibold tracking-tight">
+          Bounces &amp; unsubscribes
+        </h2>
+        <Card className="border-[#2d6e3e]/20 shadow-sm">
+          <CardContent className="pt-6">
+            <Tabs defaultValue="bounces">
+              <TabsList className="mb-4 grid w-full max-w-md grid-cols-2">
+                <TabsTrigger value="bounces">Bounces</TabsTrigger>
+                <TabsTrigger value="unsubscribes">Unsubscribes</TabsTrigger>
+              </TabsList>
+              <TabsContent value="bounces">
+                {supLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : bounces?.error ? (
+                  <p className="text-sm text-amber-800">{bounces.error}</p>
+                ) : !bounces?.items.length ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No bounces in SendGrid suppression list.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bounces.items.map((row) => (
+                        <TableRow key={row.email}>
+                          <TableCell className="font-mono text-sm">{row.email}</TableCell>
+                          <TableCell className="max-w-[240px] truncate text-sm">
+                            {row.reason}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {row.date}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {row.marked_follow_up ? (
+                                <Badge variant="secondary">Follow-up</Badge>
+                              ) : null}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                  supActionKey === actionKey("bounce", row.email, "flag")
+                                }
+                                onClick={() =>
+                                  void flagFollowUp("bounce", row.email)
+                                }
+                              >
+                                Flag for follow-up
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                disabled={
+                                  supActionKey === actionKey("bounce", row.email, "del")
+                                }
+                                onClick={() =>
+                                  void deleteSuppression("bounce", row.email)
+                                }
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </TabsContent>
+              <TabsContent value="unsubscribes">
+                {supLoading ? (
+                  <Skeleton className="h-40 w-full" />
+                ) : unsubs?.error ? (
+                  <p className="text-sm text-amber-800">{unsubs.error}</p>
+                ) : !unsubs?.items.length ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    No global unsubscribes in SendGrid suppression list.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Reason</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {unsubs.items.map((row) => (
+                        <TableRow key={row.email}>
+                          <TableCell className="font-mono text-sm">{row.email}</TableCell>
+                          <TableCell className="max-w-[240px] truncate text-sm">
+                            {row.reason}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
+                            {row.date}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex flex-wrap justify-end gap-2">
+                              {row.marked_follow_up ? (
+                                <Badge variant="secondary">Follow-up</Badge>
+                              ) : null}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={
+                                  supActionKey ===
+                                  actionKey("unsubscribe", row.email, "flag")
+                                }
+                                onClick={() =>
+                                  void flagFollowUp("unsubscribe", row.email)
+                                }
+                              >
+                                Flag for follow-up
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="destructive"
+                                size="sm"
+                                disabled={
+                                  supActionKey ===
+                                  actionKey("unsubscribe", row.email, "del")
+                                }
+                                onClick={() =>
+                                  void deleteSuppression("unsubscribe", row.email)
+                                }
+                              >
+                                Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      </section>
+
       <section className="space-y-4">
         <h2 className="text-lg font-semibold tracking-tight">Campaign history</h2>
         <Card className="border-[#2d6e3e]/20 shadow-sm">
