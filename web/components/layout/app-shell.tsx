@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -11,7 +12,6 @@ import {
   BarChart2,
   Settings,
   Menu,
-  Leaf,
   ChevronRight,
   ChevronDown,
   FileText,
@@ -425,16 +425,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
       <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-800 bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))] md:flex">
-        <div className="flex h-16 items-center gap-2 border-b border-slate-800 px-6">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#2d6e3e]">
-            <Leaf className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold leading-tight text-white">
-              Rooted Dominion
-            </p>
-            <p className="text-xs text-slate-400">Operations</p>
-          </div>
+        <div className="shrink-0 px-4 pt-4">
+          <Image
+            src="/arkone-logo.png"
+            alt="ArkOne Systems"
+            width={160}
+            height={50}
+            className="h-auto w-full max-w-[160px]"
+            priority
+          />
+        </div>
+        <div className="mx-4 mt-3 border-b border-slate-700/90" aria-hidden />
+        <div className="px-6 pb-2 pt-3">
+          <p className="text-sm font-semibold leading-tight text-white">
+            Rooted Dominion
+          </p>
+          <p className="text-xs text-slate-400">Operations</p>
         </div>
         <div className="flex-1 overflow-y-auto p-4">
           <NavLinks />
@@ -453,11 +459,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Button>
             </SheetTrigger>
             <SheetContent side="left" className="w-64 border-slate-800 bg-[hsl(var(--sidebar))] p-0 text-white">
-              <div className="flex h-16 items-center gap-2 border-b border-slate-800 px-6">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#2d6e3e]">
-                  <Leaf className="h-5 w-5 text-white" />
-                </div>
-                <span className="font-semibold">Rooted Dominion</span>
+              <div className="shrink-0 px-4 pt-4">
+                <Image
+                  src="/arkone-logo.png"
+                  alt="ArkOne Systems"
+                  width={160}
+                  height={50}
+                  className="h-auto w-full max-w-[160px]"
+                  priority
+                />
+              </div>
+              <div className="mx-4 mt-3 border-b border-slate-700/90" aria-hidden />
+              <div className="px-6 pb-2 pt-3">
+                <p className="text-sm font-semibold leading-tight text-white">
+                  Rooted Dominion
+                </p>
+                <p className="text-xs text-slate-400">Operations</p>
               </div>
               <div className="p-4">
                 <NavLinks onNavigate={() => setOpen(false)} />
