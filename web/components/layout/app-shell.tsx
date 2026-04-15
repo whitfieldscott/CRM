@@ -280,12 +280,14 @@ function NavLinks({
         href={leaf.href}
         onClick={onNavigate}
         className={cn(
-          "flex items-center gap-2 rounded-lg py-2 pr-2 text-sm font-medium transition-colors",
+          "flex items-center gap-2 rounded-lg py-2 pr-2 text-base font-semibold transition-colors",
           indentClass,
-          active ? "bg-[#2d6e3e]/20 text-white" : "text-slate-300 hover:bg-white/5 hover:text-white"
+          active
+            ? "bg-[#1a1a1a] text-[#D4A017]"
+            : "text-[#D4A017] hover:bg-[#1a1a1a]/60 hover:text-[#F5A623]"
         )}
       >
-        {Icon ? <Icon className="h-4 w-4 shrink-0 opacity-90" /> : null}
+        {Icon ? <Icon className="h-5 w-5 shrink-0" /> : null}
         <span>{leaf.label}</span>
       </Link>
     );
@@ -296,8 +298,8 @@ function NavLinks({
     if (!g) return null;
     const indent = depth === 0 ? "pl-3" : "pl-6";
     return (
-      <div key={g.id} className={cn("space-y-0.5 border-l border-slate-700/80", indent)}>
-        <p className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+      <div key={g.id} className={cn("space-y-0.5 border-l border-[#333333]", indent)}>
+        <p className="px-2 py-1 text-sm font-semibold uppercase tracking-wide text-[#D4A017]/70">
           {g.label}
         </p>
         {g.children.map((leaf) => renderLeaf(leaf, "pl-2"))}
@@ -327,7 +329,7 @@ function NavLinks({
         <div
           className={cn(
             "flex items-stretch gap-0 rounded-lg",
-            anyActive && !isOpen ? "bg-[#2d6e3e]/10" : ""
+            anyActive && !isOpen ? "bg-[#1a1a1a]" : ""
           )}
         >
           {section.parentHref ? (
@@ -335,25 +337,23 @@ function NavLinks({
               href={section.parentHref}
               onClick={onNavigate}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-3 rounded-l-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex min-w-0 flex-1 items-center gap-3 rounded-l-lg px-3 py-2.5 text-base font-semibold transition-colors",
                 parentLinkActive
-                  ? "bg-[#2d6e3e]/20 text-white"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
+                  ? "bg-[#1a1a1a] text-[#D4A017]"
+                  : "text-[#D4A017] hover:bg-[#1a1a1a]/60 hover:text-[#F5A623]"
               )}
             >
-              <Icon className="h-5 w-5 shrink-0 opacity-90" />
+              <Icon className="h-5 w-5 shrink-0" />
               <span className="truncate">{section.label}</span>
             </Link>
           ) : (
             <div
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-3 rounded-l-lg px-3 py-2.5 text-sm font-medium",
-                anyActive
-                  ? "bg-[#2d6e3e]/20 text-white"
-                  : "text-slate-300"
+                "flex min-w-0 flex-1 items-center gap-3 rounded-l-lg px-3 py-2.5 text-base font-semibold",
+                anyActive ? "bg-[#1a1a1a] text-[#D4A017]" : "text-[#D4A017]"
               )}
             >
-              <Icon className="h-5 w-5 shrink-0 opacity-90" />
+              <Icon className="h-5 w-5 shrink-0" />
               <span className="truncate">{section.label}</span>
             </div>
           )}
@@ -363,14 +363,14 @@ function NavLinks({
             aria-controls={`nav-section-${section.id}`}
             onClick={() => toggle(section.id)}
             className={cn(
-              "flex w-10 shrink-0 items-center justify-center rounded-r-lg border-l border-slate-800/80 text-slate-400 transition-colors hover:bg-white/5 hover:text-white",
-              isOpen && "text-white"
+              "flex w-10 shrink-0 items-center justify-center rounded-r-lg border-l border-[#333333] text-[#D4A017] transition-colors hover:bg-[#1a1a1a]/60 hover:text-[#F5A623]",
+              isOpen && "text-[#F5A623]"
             )}
           >
             {isOpen ? (
-              <ChevronDown className="h-4 w-4" />
+              <ChevronDown className="h-5 w-5" />
             ) : (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-5 w-5" />
             )}
           </button>
         </div>
@@ -402,13 +402,13 @@ function NavLinks({
               href={item.href}
               onClick={onNavigate}
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-semibold transition-colors",
                 active
-                  ? "bg-[#2d6e3e]/20 text-white"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
+                  ? "bg-[#1a1a1a] text-[#D4A017]"
+                  : "text-[#D4A017] hover:bg-[#1a1a1a]/60 hover:text-[#F5A623]"
               )}
             >
-              <Icon className="h-5 w-5 shrink-0 opacity-90" />
+              <Icon className="h-5 w-5 shrink-0" />
               {item.label}
             </Link>
           );
@@ -424,18 +424,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen">
-      <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-800 bg-[hsl(var(--sidebar))] text-[hsl(var(--sidebar-foreground))] md:flex">
+      <aside className="hidden w-64 shrink-0 flex-col border-r border-[#333333] bg-black text-[hsl(var(--sidebar-foreground))] md:flex">
         <div className="shrink-0 px-4 pt-4">
           <Image
             src="/arkone-logo.png"
             alt="ArkOne Systems"
-            width={160}
-            height={50}
-            className="h-auto w-full max-w-[160px]"
+            width={200}
+            height={65}
+            className="h-auto w-full max-w-[200px]"
             priority
           />
         </div>
-        <div className="mx-4 mt-3 border-b border-slate-700/90" aria-hidden />
+        <div className="mx-4 mt-3 border-b border-[#333333]" aria-hidden />
         <div className="px-6 pb-2 pt-3">
           <p className="text-sm font-semibold leading-tight text-white">
             Rooted Dominion
@@ -445,7 +445,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-y-auto p-4">
           <NavLinks />
         </div>
-        <div className="border-t border-slate-800 p-4 text-xs text-slate-500">
+        <div className="border-t border-[#333333] p-4 text-xs text-neutral-500">
           Licensed Oklahoma cannabis operations
         </div>
       </aside>
@@ -458,18 +458,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-64 border-slate-800 bg-[hsl(var(--sidebar))] p-0 text-white">
+            <SheetContent side="left" className="w-64 border-[#333333] bg-black p-0 text-[#D4A017]">
               <div className="shrink-0 px-4 pt-4">
                 <Image
                   src="/arkone-logo.png"
                   alt="ArkOne Systems"
-                  width={160}
-                  height={50}
-                  className="h-auto w-full max-w-[160px]"
+                  width={200}
+                  height={65}
+                  className="h-auto w-full max-w-[200px]"
                   priority
                 />
               </div>
-              <div className="mx-4 mt-3 border-b border-slate-700/90" aria-hidden />
+              <div className="mx-4 mt-3 border-b border-[#333333]" aria-hidden />
               <div className="px-6 pb-2 pt-3">
                 <p className="text-sm font-semibold leading-tight text-white">
                   Rooted Dominion

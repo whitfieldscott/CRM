@@ -25,8 +25,9 @@
     --input: 214.3 31.8% 91.4%;
     --ring: 139 41% 30%;
     --radius: 0.5rem;
-    --sidebar: 222 47% 11%;
-    --sidebar-foreground: 210 40% 98%;
+    /* Sidebar: pure black + gold nav text (#D4A017 ≈ hsl(45, 81%, 46%)) */
+    --sidebar: 0 0% 0%;
+    --sidebar-foreground: 45 81% 46%;
   }
 }
 
