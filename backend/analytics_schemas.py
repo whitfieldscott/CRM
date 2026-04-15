@@ -69,3 +69,9 @@ class SuppressionListResponse(BaseModel):
 class SuppressionActionBody(BaseModel):
     kind: Literal["bounce", "unsubscribe"]
     email: str
+
+
+class SmsSummaryAnalyticsResponse(BaseModel):
+    total_sent: int
+    total_failed: int
+    total_skipped: int

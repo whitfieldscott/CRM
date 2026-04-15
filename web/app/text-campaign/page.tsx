@@ -39,6 +39,7 @@ export default function TextCampaignSetupPage() {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SmsSendResponse | null>(null);
   const [smsTestMode, setSmsTestMode] = useState(false);
+  const [smsTestPhone, setSmsTestPhone] = useState("");
 
   const messageValid =
     message.trim().length > 0 && message.trim().length <= SMS_MAX;
@@ -87,6 +88,8 @@ export default function TextCampaignSetupPage() {
         message: body,
         campaign_name: campaignName.trim() || undefined,
         sms_test_mode: smsTestMode,
+        sms_test_destination:
+          smsTestMode && smsTestPhone.trim() ? smsTestPhone.trim() : undefined,
       });
       setResult(data);
       toast.success("SMS campaign completed.");
@@ -114,15 +117,15 @@ export default function TextCampaignSetupPage() {
           className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm"
         >
           <p className="font-semibold text-amber-950">
-            Test Mode: SMS will only go to your verified test number
+            Test mode: SMS will only go to the number you enter below
           </p>
-          {contacts && !contacts.test_sms_to_configured && (
+          {contacts && !smsTestPhone.trim() && !contacts.test_sms_to_configured ? (
             <p className="mt-2 text-sm text-amber-900/90">
-              Recipients response: <code className="text-xs">TEST_SMS_TO</code> is not
-              set on the server yet. If the send fails, add it to{" "}
-              <code className="text-xs">.env</code> (E.164).
+              Enter a test phone (US 10-digit or E.164), or set{" "}
+              <code className="text-xs">TEST_SMS_TO</code> in <code className="text-xs">.env</code>{" "}
+              as a fallback.
             </p>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -141,8 +144,8 @@ export default function TextCampaignSetupPage() {
                 Test Mode
               </Label>
               <p className="text-sm text-muted-foreground">
-                When on, sends only to <code className="text-xs">TEST_SMS_TO</code> from
-                .env (same warmup batch size, one destination per message).
+                When on, enter any verified destination number below (or rely on{" "}
+                <code className="text-xs">TEST_SMS_TO</code> in .env if left blank).
               </p>
             </div>
             <Switch
@@ -152,6 +155,18 @@ export default function TextCampaignSetupPage() {
               className="data-[state=checked]:bg-[#2d6e3e]"
             />
           </div>
+          {smsTestMode ? (
+            <div className="space-y-2">
+              <Label htmlFor="sms-test-phone">Test phone number</Label>
+              <Input
+                id="sms-test-phone"
+                type="tel"
+                placeholder="+15551234567 or 5551234567"
+                value={smsTestPhone}
+                onChange={(e) => setSmsTestPhone(e.target.value)}
+              />
+            </div>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="file">CSV file name</Label>
@@ -270,9 +285,9 @@ export default function TextCampaignSetupPage() {
                 <strong>{contacts.test_mode ? "On" : "Off"}</strong>
               </p>
               <p className="text-muted-foreground">
-                <code className="text-xs">TEST_SMS_TO</code> for SMS test sends:{" "}
+                <code className="text-xs">TEST_SMS_TO</code> in .env (optional fallback):{" "}
                 <strong>
-                  {contacts.test_sms_to_configured ? "Configured" : "Not set"}
+                  {contacts.test_sms_to_configured ? "Set" : "Not set"}
                 </strong>
               </p>
               <p className="text-muted-foreground">
@@ -331,9 +346,9 @@ export default function TextCampaignSetupPage() {
             <DialogDescription>
               {smsTestMode ? (
                 <>
-                  Test Mode is on: messages go only to your{" "}
-                  <code className="text-xs">TEST_SMS_TO</code> number. File:{" "}
-                  <strong>{fileName || "—"}</strong>
+                  Test mode is on: messages go only to{" "}
+                  <strong>{smsTestPhone.trim() || "your test number or TEST_SMS_TO"}</strong>
+                  . File: <strong>{fileName || "—"}</strong>
                 </>
               ) : (
                 <>

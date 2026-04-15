@@ -7,6 +7,7 @@ import type {
   CampaignAnalyticsRow,
   SendGridSeriesResponse,
   SendGridStats,
+  SmsSummaryAnalytics,
   SuppressionListResponse,
 } from "@/types/analytics";
 import { toast } from "sonner";
@@ -75,6 +76,7 @@ const PRINT_STYLE = `
 
 export default function MarketingPage() {
   const [sendgrid, setSendgrid] = useState<SendGridStats | null>(null);
+  const [smsSummary, setSmsSummary] = useState<SmsSummaryAnalytics | null>(null);
   const [campaigns, setCampaigns] = useState<CampaignAnalyticsRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshingSg, setRefreshingSg] = useState(false);
@@ -91,6 +93,11 @@ export default function MarketingPage() {
   const loadSendgrid = useCallback(async () => {
     const { data } = await api.get<SendGridStats>("/analytics/sendgrid");
     setSendgrid(data);
+  }, []);
+
+  const loadSmsSummary = useCallback(async () => {
+    const { data } = await api.get<SmsSummaryAnalytics>("/analytics/sms/summary");
+    setSmsSummary(data);
   }, []);
 
   const loadCampaigns = useCallback(async () => {
@@ -133,13 +140,13 @@ export default function MarketingPage() {
   const loadCore = useCallback(async () => {
     setLoading(true);
     try {
-      await Promise.all([loadSendgrid(), loadCampaigns()]);
+      await Promise.all([loadSendgrid(), loadSmsSummary(), loadCampaigns()]);
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [loadSendgrid, loadCampaigns]);
+  }, [loadSendgrid, loadSmsSummary, loadCampaigns]);
 
   useEffect(() => {
     void loadCore();
@@ -156,14 +163,14 @@ export default function MarketingPage() {
   const refreshSendgrid = useCallback(async () => {
     setRefreshingSg(true);
     try {
-      await loadSendgrid();
-      toast.success("SendGrid stats refreshed");
+      await Promise.all([loadSendgrid(), loadSmsSummary()]);
+      toast.success("Summaries refreshed");
     } catch (e) {
       toast.error(getApiErrorMessage(e));
     } finally {
       setRefreshingSg(false);
     }
-  }, [loadSendgrid]);
+  }, [loadSendgrid, loadSmsSummary]);
 
   const deliveredPct = sendgrid ? pct(sendgrid.delivered, sendgrid.requests) : 0;
   const openRate = sendgrid ? pct(sendgrid.opens, sendgrid.delivered) : 0;
@@ -346,7 +353,7 @@ export default function MarketingPage() {
         </div>
         <Card className="border-[#2d6e3e]/25 shadow-sm">
           <CardHeader>
-            <CardTitle className="text-base">SendGrid summary</CardTitle>
+            <CardTitle className="text-base">Email summary</CardTitle>
             <CardDescription>Data pulled live from SendGrid</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -426,6 +433,49 @@ export default function MarketingPage() {
                   Requests (SendGrid): {(sendgrid?.requests ?? 0).toLocaleString()}
                 </p>
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-[#2d6e3e]/25 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Text summary</CardTitle>
+            <CardDescription>Totals from SMS campaign logs (Twilio sends)</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {loading ? (
+              <div className="grid gap-3 sm:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-3 rounded-lg border border-[#2d6e3e]/15 bg-[#2d6e3e]/5 p-4">
+                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    SMS sent
+                  </p>
+                  <p className="text-lg font-bold tabular-nums text-[#2d6e3e]">
+                    {(smsSummary?.total_sent ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    SMS failed
+                  </p>
+                  <p className="text-lg font-bold tabular-nums">
+                    {(smsSummary?.total_failed ?? 0).toLocaleString()}
+                  </p>
+                </div>
+                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    SMS skipped
+                  </p>
+                  <p className="text-lg font-bold tabular-nums">
+                    {(smsSummary?.total_skipped ?? 0).toLocaleString()}
+                  </p>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

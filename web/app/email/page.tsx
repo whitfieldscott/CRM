@@ -18,6 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -47,6 +48,8 @@ export default function EmailBlasterPage() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SendBulkResponse | null>(null);
+  const [emailTestMode, setEmailTestMode] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
 
   async function runPreview() {
     if (!fileName.trim()) {
@@ -100,6 +103,7 @@ export default function EmailBlasterPage() {
       const params: Record<string, string> = { file_name: fileName.trim() };
       const cn = campaignName.trim();
       if (cn) params.campaign_name = cn;
+      if (emailTestMode && testEmail.trim()) params.test_email = testEmail.trim();
       const { data } = await api.post<SendBulkResponse>(
         "/send-bulk",
         undefined,
@@ -153,6 +157,35 @@ export default function EmailBlasterPage() {
               />
             </div>
           </div>
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <Label htmlFor="email-test" className="text-base font-medium">
+                Test mode
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                When on, every send in the batch goes only to the address you type (CSV
+                still drives the loop).
+              </p>
+            </div>
+            <Switch
+              id="email-test"
+              checked={emailTestMode}
+              onCheckedChange={setEmailTestMode}
+              className="data-[state=checked]:bg-[#2d6e3e]"
+            />
+          </div>
+          {emailTestMode ? (
+            <div className="space-y-2">
+              <Label htmlFor="test-email-blaster">Test email address</Label>
+              <Input
+                id="test-email-blaster"
+                type="email"
+                placeholder="you@example.com"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+              />
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
@@ -170,10 +203,19 @@ export default function EmailBlasterPage() {
             </Button>
             <Button
               className="bg-[#2d6e3e] hover:bg-[#256035]"
-              onClick={() => setSendOpen(true)}
+              onClick={() => {
+                if (emailTestMode) {
+                  const te = testEmail.trim();
+                  if (!te || !te.includes("@")) {
+                    toast.error("Enter a valid test email address.");
+                    return;
+                  }
+                }
+                setSendOpen(true);
+              }}
               disabled={sending || !fileName.trim()}
             >
-              Send emails
+              {emailTestMode ? "Send Test Email" : "Send emails"}
             </Button>
           </div>
         </CardContent>
@@ -278,8 +320,18 @@ export default function EmailBlasterPage() {
           <DialogHeader>
             <DialogTitle>Send campaign?</DialogTitle>
             <DialogDescription>
-              This will send real emails through SendGrid (unless TEST_MODE is
-              on). File: <strong>{fileName || "—"}</strong>
+              {emailTestMode ? (
+                <>
+                  Test mode: all messages go to{" "}
+                  <strong>{testEmail.trim() || "your test address"}</strong>. File:{" "}
+                  <strong>{fileName || "—"}</strong>
+                </>
+              ) : (
+                <>
+                  Sends through SendGrid (server TEST_MODE may redirect). File:{" "}
+                  <strong>{fileName || "—"}</strong>
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -291,7 +343,7 @@ export default function EmailBlasterPage() {
               disabled={sending}
               onClick={() => void runSend()}
             >
-              {sending ? "Sending…" : "Confirm send"}
+              {sending ? "Sending…" : emailTestMode ? "Send Test Email" : "Confirm send"}
             </Button>
           </DialogFooter>
         </DialogContent>

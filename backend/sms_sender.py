@@ -76,20 +76,24 @@ def send_bulk_sms(
     db=None,
     sms_campaign_log_id: Optional[int] = None,
     sms_test_mode: bool = False,
+    sms_test_destination: Optional[str] = None,
 ) -> dict:
     """
     DataFrame must have a normalized E.164 `phone` column.
     Respects warmup daily limit and position tracking (separate file from email).
 
     When ``sms_test_mode`` is True, every message in the batch is sent only to
-    ``TEST_SMS_TO`` (caller must ensure it is set); CSV phones are still used
-    for logging / contact matching.
+    ``sms_test_destination`` (E.164) if provided, otherwise ``TEST_SMS_TO`` from
+    the environment. CSV phones are still used for logging / contact matching.
     """
     if "phone" not in df.columns:
         raise ValueError("DataFrame must contain a 'phone' column")
 
     daily_limit = get_sms_daily_limit()
-    test_dest = (TEST_SMS_TO or "").strip() if sms_test_mode else ""
+    if sms_test_mode:
+        test_dest = (sms_test_destination or "").strip() or (TEST_SMS_TO or "").strip()
+    else:
+        test_dest = ""
 
     print(f"📊 Total rows with valid phones in file: {len(df)}")
 

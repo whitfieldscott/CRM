@@ -118,6 +118,7 @@ export type SmsContactsResponse = {
   warmup_complete: boolean;
   test_mode: boolean;
   twilio_configured: boolean;
+  /** True when ``TEST_SMS_TO`` is set in .env (optional fallback for test sends). */
   test_sms_to_configured: boolean;
 };
 

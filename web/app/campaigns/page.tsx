@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, getApiErrorMessage } from "@/lib/api";
 import type {
   CampaignLog,
@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -37,17 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
-import {
-  ChevronDown,
-  ChevronRight,
-  Loader2,
-  Plus,
-  Save,
-  Send,
-  Trash2,
-} from "lucide-react";
+import { ChevronDown, Loader2, Plus, Save, Send, Trash2 } from "lucide-react";
 
 const DEFAULT_CSV = "Master Grow Email List.csv";
 
@@ -82,6 +73,18 @@ type PreOrderRow = { id: string; strain: string; genetics: string };
 
 function newInvRowId(): string {
   return `inv-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function deliveryRatePct(sent: number, failed: number): number {
+  const d = sent + failed;
+  if (!d) return 0;
+  return Math.round((100 * sent) / d * 10) / 10;
+}
+
+function deliveryRateClass(rate: number): string {
+  if (rate > 95) return "font-semibold text-emerald-600";
+  if (rate >= 80) return "font-semibold text-amber-600";
+  return "font-semibold text-red-600";
 }
 
 function escHtml(s: string): string {
@@ -229,7 +232,9 @@ export default function CampaignsPage() {
 
   const [campaigns, setCampaigns] = useState<CampaignLog[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  const [emailTestMode, setEmailTestMode] = useState(false);
+  const [testEmail, setTestEmail] = useState("");
 
   const [sendOpen, setSendOpen] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
@@ -309,6 +314,13 @@ export default function CampaignsPage() {
       toast.error("CSV file name is required.");
       return;
     }
+    if (emailTestMode) {
+      const te = testEmail.trim();
+      if (!te || !te.includes("@")) {
+        toast.error("Enter a valid test email address.");
+        return;
+      }
+    }
     setSendOpen(true);
     setConfirmInfo(null);
     setConfirmLoading(true);
@@ -339,6 +351,8 @@ export default function CampaignsPage() {
         {
           campaign_name: campaignName.trim(),
           file_name: fileName.trim(),
+          test_email:
+            emailTestMode && testEmail.trim() ? testEmail.trim() : undefined,
         }
       );
       setSendResult(data);
@@ -351,10 +365,6 @@ export default function CampaignsPage() {
     } finally {
       setSending(false);
     }
-  }
-
-  function toggleRow(id: number) {
-    setExpandedId((prev) => (prev === id ? null : id));
   }
 
   function updateEmailTemplateFromInventory() {
@@ -430,6 +440,36 @@ export default function CampaignsPage() {
                   </div>
                 </div>
 
+                <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <Label htmlFor="email-test-mode" className="text-base font-medium">
+                      Test mode
+                    </Label>
+                    <p className="text-sm text-muted-foreground">
+                      When on, every message in the batch is sent only to the test address
+                      you enter (CSV is still used for the send loop and logging).
+                    </p>
+                  </div>
+                  <Switch
+                    id="email-test-mode"
+                    checked={emailTestMode}
+                    onCheckedChange={setEmailTestMode}
+                    className="data-[state=checked]:bg-[#2d6e3e]"
+                  />
+                </div>
+                {emailTestMode ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="test-email">Test email address</Label>
+                    <Input
+                      id="test-email"
+                      type="email"
+                      placeholder="you@example.com"
+                      value={testEmail}
+                      onChange={(e) => setTestEmail(e.target.value)}
+                    />
+                  </div>
+                ) : null}
+
                 <div className="flex shrink-0 flex-wrap gap-2">
                   <Button
                     variant="outline"
@@ -449,7 +489,7 @@ export default function CampaignsPage() {
                     onClick={() => void openSendModal()}
                   >
                     <Send className="mr-2 h-4 w-4" />
-                    Send campaign
+                    {emailTestMode ? "Send Test Email" : "Send campaign"}
                   </Button>
                 </div>
 
@@ -762,11 +802,15 @@ export default function CampaignsPage() {
         </Card>
       )}
 
-      {/* SECTION 2 */}
+      {/* SECTION 2 — campaign history (same columns as Text Campaign History) */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold tracking-tight">Past Campaigns</h2>
+        <h2 className="text-lg font-semibold tracking-tight">Email Campaign History</h2>
         <Card>
-          <CardContent className="pt-6">
+          <CardHeader>
+            <CardTitle>Campaigns</CardTitle>
+            <CardDescription>Most recent first.</CardDescription>
+          </CardHeader>
+          <CardContent>
             {historyLoading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : campaigns.length === 0 ? (
@@ -774,107 +818,49 @@ export default function CampaignsPage() {
                 No campaigns sent yet.
               </p>
             ) : (
-              <ScrollArea className="w-full">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10" />
-                      <TableHead>Date</TableHead>
-                      <TableHead>Campaign Name</TableHead>
-                      <TableHead>File Used</TableHead>
-                      <TableHead className="text-right">Sent</TableHead>
-                      <TableHead className="text-right">Failed</TableHead>
-                      <TableHead className="text-right">Skipped</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {campaigns.map((row) => (
-                      <Fragment key={row.id}>
-                        <TableRow
-                          className={cn("cursor-pointer hover:bg-muted/50")}
-                          onClick={() => toggleRow(row.id)}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Campaign name</TableHead>
+                    <TableHead>File used</TableHead>
+                    <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Failed</TableHead>
+                    <TableHead className="text-right">Skipped</TableHead>
+                    <TableHead className="text-right">Delivery rate</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {campaigns.map((row) => {
+                    const dr = deliveryRatePct(row.total_sent, row.total_failed);
+                    return (
+                      <TableRow key={row.id}>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {formatDateTime(row.date_sent)}
+                        </TableCell>
+                        <TableCell className="font-medium">{row.campaign_name}</TableCell>
+                        <TableCell className="max-w-[200px] truncate text-sm text-muted-foreground">
+                          {row.file_used || "—"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {row.total_sent}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {row.total_failed}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {row.total_skipped}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${deliveryRateClass(dr)}`}
                         >
-                          <TableCell className="w-10 align-middle">
-                            {expandedId === row.id ? (
-                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                            )}
-                          </TableCell>
-                          <TableCell className="whitespace-nowrap text-sm">
-                            {formatDateTime(row.date_sent)}
-                          </TableCell>
-                          <TableCell className="font-medium">
-                            {row.campaign_name}
-                          </TableCell>
-                          <TableCell className="max-w-[200px] truncate text-muted-foreground text-sm">
-                            {row.file_used || "—"}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {row.total_sent}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {row.total_failed}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {row.total_skipped}
-                          </TableCell>
-                        </TableRow>
-                        {expandedId === row.id && (
-                          <TableRow className="bg-muted/30 hover:bg-muted/30">
-                            <TableCell colSpan={7} className="p-4 text-sm">
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    ID:
-                                  </span>{" "}
-                                  {row.id}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Date:
-                                  </span>{" "}
-                                  {formatDateTime(row.date_sent)}
-                                </p>
-                                <p className="sm:col-span-2">
-                                  <span className="text-muted-foreground">
-                                    Campaign:
-                                  </span>{" "}
-                                  {row.campaign_name}
-                                </p>
-                                <p className="sm:col-span-2">
-                                  <span className="text-muted-foreground">
-                                    File:
-                                  </span>{" "}
-                                  {row.file_used || "—"}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Sent:
-                                  </span>{" "}
-                                  {row.total_sent}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Failed:
-                                  </span>{" "}
-                                  {row.total_failed}
-                                </p>
-                                <p>
-                                  <span className="text-muted-foreground">
-                                    Skipped:
-                                  </span>{" "}
-                                  {row.total_skipped}
-                                </p>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
+                          {dr.toFixed(1)}%
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
@@ -887,7 +873,10 @@ export default function CampaignsPage() {
             <DialogDescription>
               On confirm, your editor content is saved to{" "}
               <code className="text-xs">data/email_template.html</code>, then the
-              campaign is sent. Respects server TEST_MODE.
+              campaign is sent.
+              {emailTestMode
+                ? ` All messages go to ${testEmail.trim() || "your test address"}.`
+                : " Recipients follow server TEST_MODE when no test address is set in the campaign UI."}
             </DialogDescription>
           </DialogHeader>
           {confirmLoading ? (
@@ -932,6 +921,8 @@ export default function CampaignsPage() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Sending…
                 </>
+              ) : emailTestMode ? (
+                "Send Test Email"
               ) : (
                 "Confirm send"
               )}

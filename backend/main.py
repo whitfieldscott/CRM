@@ -33,6 +33,7 @@ from analytics_schemas import (
     SuppressionActionBody,
     SuppressionEntry,
     SuppressionListResponse,
+    SmsSummaryAnalyticsResponse,
 )
 from schemas import (
     CSVImportSummary,
@@ -51,6 +52,8 @@ from schemas import (
     ContactCreate,
     ContactResponse,
     ContactUpdate,
+    FromContactsBody,
+    IntegerIdListBody,
     EmailSendResponse,
     SettingsResponse,
     SettingsUpdate,
@@ -379,6 +382,7 @@ BULK_EMAIL_SUBJECT = "Available Clones — Rooted Dominion | Rooted & Ready $5 E
 def send_bulk(
     file_name: str,
     campaign_name: Optional[str] = None,
+    test_email: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     file_path = f"../data/{file_name}"
@@ -405,6 +409,7 @@ def send_bulk(
             db=db,
             campaign_log_id=campaign.id,
             email_subject=BULK_EMAIL_SUBJECT,
+            test_email_override=(test_email.strip() if test_email else None),
         )
     except Exception as e:
         db.rollback()
@@ -528,11 +533,22 @@ def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
             status_code=503,
             detail="Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env.",
         )
-    if payload.sms_test_mode and not (TEST_SMS_TO or "").strip():
-        raise HTTPException(
-            status_code=400,
-            detail="SMS test mode requires TEST_SMS_TO in .env (verified Twilio destination number).",
-        )
+    sms_test_e164: Optional[str] = None
+    if payload.sms_test_mode:
+        raw_dest = (payload.sms_test_destination or "").strip() or (
+            TEST_SMS_TO or ""
+        ).strip()
+        if not raw_dest:
+            raise HTTPException(
+                status_code=400,
+                detail="SMS test mode requires a test phone number in the request or TEST_SMS_TO in .env.",
+            )
+        sms_test_e164 = normalize_us_e164(raw_dest)
+        if not sms_test_e164:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid test phone number. Use US 10-digit or E.164 (+1…).",
+            )
 
     safe = _safe_data_csv_file_name(payload.file_name)
     path = f"../data/{safe}"
@@ -569,6 +585,7 @@ def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
             db=db,
             sms_campaign_log_id=log.id,
             sms_test_mode=payload.sms_test_mode,
+            sms_test_destination=sms_test_e164 if payload.sms_test_mode else None,
         )
     except Exception as e:
         db.rollback()
@@ -714,6 +731,62 @@ def delete_contact(contact_id: int, db: Session = Depends(get_db)):
     db.delete(c)
     db.commit()
     return {"message": "Contact deleted", "id": contact_id}
+
+
+@app.post("/contacts/bulk-delete")
+def bulk_delete_contacts(body: IntegerIdListBody, db: Session = Depends(get_db)):
+    deleted = 0
+    for cid in body.ids:
+        row = db.query(Contact).filter(Contact.id == cid).first()
+        if row:
+            db.delete(row)
+            deleted += 1
+    db.commit()
+    return {"deleted": deleted}
+
+
+@app.post("/clients/from-contacts")
+def create_clients_from_contacts(
+    body: FromContactsBody, db: Session = Depends(get_db)
+):
+    created = 0
+    skipped = 0
+    for cid in body.contact_ids:
+        contact = db.query(Contact).filter(Contact.id == cid).first()
+        if not contact:
+            continue
+        email = contact.email.strip().lower()
+        exists = (
+            db.query(Client)
+            .filter(func.lower(Client.primary_contact_email) == email)
+            .first()
+        )
+        if exists:
+            skipped += 1
+            continue
+        client_name = (
+            (contact.company or contact.name or email.split("@")[0]).strip()[:255]
+            or "Client"
+        )
+        db.add(
+            Client(
+                name=client_name,
+                primary_contact_email=email,
+                primary_contact_name=contact.name,
+                primary_contact_phone=contact.phone,
+                state=contact.state or "OK",
+                city=contact.city,
+                license_number=contact.license_number,
+                license_type=contact.license_type,
+            )
+        )
+        created += 1
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"created": created, "skipped_existing": skipped}
 
 
 @app.post("/contacts/import-csv", response_model=CSVImportSummary)
@@ -868,6 +941,15 @@ def delete_client(client_id: int, db: Session = Depends(get_db)):
     return {"message": "Client deactivated", "id": client_id}
 
 
+@app.post("/clients/bulk-deactivate")
+def bulk_deactivate_clients(body: IntegerIdListBody, db: Session = Depends(get_db)):
+    rows = db.query(Client).filter(Client.id.in_(body.ids)).all()
+    for c in rows:
+        c.is_active = False
+    db.commit()
+    return {"updated": len(rows)}
+
+
 @app.get("/clients/{client_id}/emails", response_model=list[EmailSendResponse])
 def client_emails(client_id: int, db: Session = Depends(get_db)):
     c = db.query(Client).filter(Client.id == client_id).first()
@@ -990,6 +1072,7 @@ def send_campaign_with_template(payload: CampaignSendBody, db: Session = Depends
     db.refresh(campaign)
 
     try:
+        te = (payload.test_email or "").strip().lower() if payload.test_email else None
         result = send_bulk_emails(
             df,
             file_name=safe_name,
@@ -997,6 +1080,7 @@ def send_campaign_with_template(payload: CampaignSendBody, db: Session = Depends
             campaign_log_id=campaign.id,
             email_subject=name,
             html_content=template_html,
+            test_email_override=te if te and "@" in te else None,
         )
     except Exception as e:
         db.rollback()
@@ -1267,6 +1351,24 @@ def analytics_email_aggregate(db: Session = Depends(get_db)):
         last_send_date=last_send_date,
         campaigns_this_week=campaigns_this_week,
         average_send_size=average_send_size,
+    )
+
+
+@app.get("/analytics/sms/summary", response_model=SmsSummaryAnalyticsResponse)
+def analytics_sms_summary_aggregate(db: Session = Depends(get_db)):
+    total_sent = int(
+        db.query(func.coalesce(func.sum(SmsCampaignLog.total_sent), 0)).scalar() or 0
+    )
+    total_failed = int(
+        db.query(func.coalesce(func.sum(SmsCampaignLog.total_failed), 0)).scalar() or 0
+    )
+    total_skipped = int(
+        db.query(func.coalesce(func.sum(SmsCampaignLog.total_skipped), 0)).scalar() or 0
+    )
+    return SmsSummaryAnalyticsResponse(
+        total_sent=total_sent,
+        total_failed=total_failed,
+        total_skipped=total_skipped,
     )
 
 

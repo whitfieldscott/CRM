@@ -107,6 +107,7 @@ def send_bulk_emails(
     email_subject: Optional[str] = None,
     html_content: Optional[str] = None,
     plain_text: Optional[str] = None,
+    test_email_override: Optional[str] = None,
 ):
     """
     Expects a CLEAN dataframe with an 'email' column.
@@ -149,6 +150,7 @@ admin@arkonesystems.com
     )
 
     test_mode = get_test_mode()
+    override = (test_email_override or "").strip().lower()
     daily_limit = get_daily_limit()
 
     unsubscribed = get_unsubscribed_emails()
@@ -186,7 +188,12 @@ admin@arkonesystems.com
                 continue
 
             real_email = str(real_email).strip().lower()
-            to_email = TEST_EMAIL if test_mode else real_email
+            if override and "@" in override:
+                to_email = override
+            elif test_mode:
+                to_email = TEST_EMAIL
+            else:
+                to_email = real_email
 
             print(f"📨 [{i+1}/{len(batch)}] Sending to: {real_email} → {to_email}")
 

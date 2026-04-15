@@ -57,3 +57,9 @@ export type SuppressionListResponse = {
   items: SuppressionEntry[];
   error: string | null;
 };
+
+export type SmsSummaryAnalytics = {
+  total_sent: number;
+  total_failed: number;
+  total_skipped: number;
+};

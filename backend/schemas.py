@@ -175,6 +175,10 @@ class SmsSendBody(BaseModel):
     message: str = Field(..., min_length=1, max_length=160)
     campaign_name: Optional[str] = None
     sms_test_mode: bool = False
+    sms_test_destination: Optional[str] = Field(
+        default=None,
+        description="E.164 test destination when sms_test_mode is on (overrides TEST_SMS_TO).",
+    )
 
 
 class CampaignTemplateBody(BaseModel):
@@ -184,6 +188,18 @@ class CampaignTemplateBody(BaseModel):
 class CampaignSendBody(BaseModel):
     campaign_name: str
     file_name: str
+    test_email: Optional[str] = Field(
+        default=None,
+        description="When set, all sends go to this address (UI test mode).",
+    )
+
+
+class IntegerIdListBody(BaseModel):
+    ids: list[int] = Field(..., min_length=1)
+
+
+class FromContactsBody(BaseModel):
+    contact_ids: list[int] = Field(..., min_length=1)
 
 
 class EmailSendResponse(BaseModel):
