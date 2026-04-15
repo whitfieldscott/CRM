@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +38,14 @@ export default function TextCampaignSetupPage() {
   const [sendOpen, setSendOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<SmsSendResponse | null>(null);
+  const [smsTestMode, setSmsTestMode] = useState(false);
+
+  const messageValid =
+    message.trim().length > 0 && message.trim().length <= SMS_MAX;
+  const sendDisabled =
+    sending ||
+    !messageValid ||
+    (!smsTestMode && !fileName.trim());
 
   async function loadContacts() {
     if (!fileName.trim()) {
@@ -61,19 +70,22 @@ export default function TextCampaignSetupPage() {
 
   async function runSend() {
     const body = message.trim();
-    if (!body || !fileName.trim()) return;
+    if (!body) return;
     if (body.length > SMS_MAX) {
       toast.error(`Message must be ${SMS_MAX} characters or fewer.`);
       return;
     }
+    const safeFile = fileName.trim() || DEFAULT_CSV;
+    if (!smsTestMode && !fileName.trim()) return;
     setSendOpen(false);
     setSending(true);
     setResult(null);
     try {
       const { data } = await api.post<SmsSendResponse>("/sms/send", {
-        file_name: fileName.trim(),
+        file_name: safeFile,
         message: body,
         campaign_name: campaignName.trim() || undefined,
+        sms_test_mode: smsTestMode,
       });
       setResult(data);
       toast.success("SMS campaign completed.");
@@ -95,6 +107,24 @@ export default function TextCampaignSetupPage() {
         </p>
       </div>
 
+      {smsTestMode && (
+        <div
+          role="status"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm"
+        >
+          <p className="font-semibold text-amber-950">
+            Test Mode: SMS will only go to your verified test number
+          </p>
+          {contacts && !contacts.test_sms_to_configured && (
+            <p className="mt-2 text-sm text-amber-900/90">
+              Recipients response: <code className="text-xs">TEST_SMS_TO</code> is not
+              set on the server yet. If the send fails, add it to{" "}
+              <code className="text-xs">.env</code> (E.164).
+            </p>
+          )}
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Campaign setup</CardTitle>
@@ -104,6 +134,23 @@ export default function TextCampaignSetupPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-1">
+              <Label htmlFor="sms-test-mode" className="text-base font-medium">
+                Test Mode
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                When on, sends only to <code className="text-xs">TEST_SMS_TO</code> from
+                .env (same warmup batch size, one destination per message).
+              </p>
+            </div>
+            <Switch
+              id="sms-test-mode"
+              checked={smsTestMode}
+              onCheckedChange={setSmsTestMode}
+              className="data-[state=checked]:bg-[#2d6e3e]"
+            />
+          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="file">CSV file name</Label>
@@ -152,14 +199,9 @@ export default function TextCampaignSetupPage() {
             <Button
               className="bg-[#2d6e3e] hover:bg-[#256035]"
               onClick={() => setSendOpen(true)}
-              disabled={
-                sending ||
-                !fileName.trim() ||
-                !message.trim() ||
-                message.trim().length > SMS_MAX
-              }
+              disabled={sendDisabled}
             >
-              Send SMS
+              {smsTestMode ? "Send Test SMS" : "Send SMS"}
             </Button>
           </div>
         </CardContent>
@@ -223,10 +265,14 @@ export default function TextCampaignSetupPage() {
                 SMS / day
               </p>
               <p className="text-muted-foreground">
-                TEST_MODE:{" "}
+                Server TEST_MODE (email / other):{" "}
                 <strong>{contacts.test_mode ? "On" : "Off"}</strong>
-                {contacts.test_mode &&
-                  " — all SMS go to TEST_SMS_TO in .env when set."}
+              </p>
+              <p className="text-muted-foreground">
+                <code className="text-xs">TEST_SMS_TO</code> for SMS test sends:{" "}
+                <strong>
+                  {contacts.test_sms_to_configured ? "Configured" : "Not set"}
+                </strong>
               </p>
               <p className="text-muted-foreground">
                 Twilio:{" "}
@@ -278,10 +324,22 @@ export default function TextCampaignSetupPage() {
       <Dialog open={sendOpen} onOpenChange={setSendOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Send SMS campaign?</DialogTitle>
+            <DialogTitle>
+              {smsTestMode ? "Send test SMS?" : "Send SMS campaign?"}
+            </DialogTitle>
             <DialogDescription>
-              Sends via Twilio using your template message. File:{" "}
-              <strong>{fileName || "—"}</strong>
+              {smsTestMode ? (
+                <>
+                  Test Mode is on: messages go only to your{" "}
+                  <code className="text-xs">TEST_SMS_TO</code> number. File:{" "}
+                  <strong>{fileName || "—"}</strong>
+                </>
+              ) : (
+                <>
+                  Sends via Twilio to recipients from your CSV. File:{" "}
+                  <strong>{fileName || "—"}</strong>
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -290,10 +348,14 @@ export default function TextCampaignSetupPage() {
             </Button>
             <Button
               className="bg-[#2d6e3e] hover:bg-[#256035]"
-              disabled={sending}
+              disabled={sendDisabled}
               onClick={() => void runSend()}
             >
-              {sending ? "Sending…" : "Confirm send"}
+              {sending
+                ? "Sending…"
+                : smsTestMode
+                  ? "Send Test SMS"
+                  : "Confirm send"}
             </Button>
           </DialogFooter>
         </DialogContent>

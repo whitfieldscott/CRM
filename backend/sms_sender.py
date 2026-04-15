@@ -10,7 +10,6 @@ from csv_sender import (
     WARMUP_SCHEDULE,
     WARMUP_START_DATE,
 )
-from settings_store import get_test_mode
 from sms_service import TEST_SMS_TO, normalize_us_e164, send_sms
 
 DELAY_BETWEEN_SMS = 1.0
@@ -76,16 +75,21 @@ def send_bulk_sms(
     *,
     db=None,
     sms_campaign_log_id: Optional[int] = None,
+    sms_test_mode: bool = False,
 ) -> dict:
     """
     DataFrame must have a normalized E.164 `phone` column.
     Respects warmup daily limit and position tracking (separate file from email).
+
+    When ``sms_test_mode`` is True, every message in the batch is sent only to
+    ``TEST_SMS_TO`` (caller must ensure it is set); CSV phones are still used
+    for logging / contact matching.
     """
     if "phone" not in df.columns:
         raise ValueError("DataFrame must contain a 'phone' column")
 
-    test_mode = get_test_mode()
     daily_limit = get_sms_daily_limit()
+    test_dest = (TEST_SMS_TO or "").strip() if sms_test_mode else ""
 
     print(f"📊 Total rows with valid phones in file: {len(df)}")
 
@@ -110,9 +114,8 @@ def send_bulk_sms(
     total_skipped = 0
     log_db = db is not None and sms_campaign_log_id is not None
 
-    dest = (TEST_SMS_TO or "").strip() if test_mode else ""
-    if test_mode and not dest:
-        print("⚠️ TEST_MODE on but TEST_SMS_TO is empty — set in .env for SMS tests.")
+    if sms_test_mode and not test_dest:
+        print("⚠️ SMS test mode but TEST_SMS_TO is empty — caller should validate.")
 
     try:
         for i, (_, row) in enumerate(batch.iterrows()):
@@ -121,12 +124,15 @@ def send_bulk_sms(
                 total_skipped += 1
                 continue
 
-            to_send = dest if test_mode and dest else str(dest_phone)
-            if test_mode and not dest:
+            to_send = test_dest if sms_test_mode and test_dest else str(dest_phone)
+            if sms_test_mode and not test_dest:
                 total_skipped += 1
                 continue
 
-            print(f"💬 [{i+1}/{len(batch)}] SMS → {dest_phone}" + (f" (test: {to_send})" if test_mode else ""))
+            print(
+                f"💬 [{i+1}/{len(batch)}] SMS → {dest_phone}"
+                + (f" (test destination: {to_send})" if sms_test_mode else "")
+            )
 
             ok = send_sms(to_send, message)
 
@@ -173,4 +179,5 @@ def send_bulk_sms(
         "daily_limit": daily_limit,
         "next_position": new_position,
         "total_sent_so_far": total_sent_so_far,
+        "sms_test_mode": sms_test_mode,
     }

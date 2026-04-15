@@ -118,6 +118,7 @@ export type SmsContactsResponse = {
   warmup_complete: boolean;
   test_mode: boolean;
   twilio_configured: boolean;
+  test_sms_to_configured: boolean;
 };
 
 export type SmsSendResponse = {

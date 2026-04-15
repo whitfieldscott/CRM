@@ -366,6 +366,7 @@ def get_sms_contacts(file_name: str):
         warmup_complete=warmup["warmup_complete"],
         test_mode=get_test_mode(),
         twilio_configured=twilio_configured(),
+        test_sms_to_configured=bool((TEST_SMS_TO or "").strip()),
     )
 
 
@@ -376,10 +377,10 @@ def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
             status_code=503,
             detail="Twilio is not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER in .env.",
         )
-    if get_test_mode() and not (TEST_SMS_TO or "").strip():
+    if payload.sms_test_mode and not (TEST_SMS_TO or "").strip():
         raise HTTPException(
             status_code=400,
-            detail="TEST_MODE is on: set TEST_SMS_TO in .env to a verified destination number for SMS tests.",
+            detail="SMS test mode requires TEST_SMS_TO in .env (verified Twilio destination number).",
         )
 
     safe = _safe_data_csv_file_name(payload.file_name)
@@ -416,6 +417,7 @@ def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
             message=payload.message.strip(),
             db=db,
             sms_campaign_log_id=log.id,
+            sms_test_mode=payload.sms_test_mode,
         )
     except Exception as e:
         db.rollback()

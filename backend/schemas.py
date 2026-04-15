@@ -167,12 +167,14 @@ class SmsContactsResponse(BaseModel):
     warmup_complete: bool
     test_mode: bool
     twilio_configured: bool
+    test_sms_to_configured: bool
 
 
 class SmsSendBody(BaseModel):
     file_name: str = Field(..., min_length=1)
     message: str = Field(..., min_length=1, max_length=160)
     campaign_name: Optional[str] = None
+    sms_test_mode: bool = False
 
 
 class CampaignTemplateBody(BaseModel):
