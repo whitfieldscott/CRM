@@ -65,6 +65,13 @@ from schemas import (
     SmsSendBody,
 )
 from settings_store import get_test_mode, set_test_mode
+from metrc_service import (
+    MetrcError,
+    active_packages,
+    list_licenses,
+    plants_for_license,
+    transfers_incoming_outgoing,
+)
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -112,6 +119,7 @@ def load_and_clean_csv(file_path: str) -> pd.DataFrame:
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 EMAIL_TEMPLATE_PATH = DATA_DIR / "email_template.html"
+EMAIL_TEMPLATE_SIMPLE_PATH = DATA_DIR / "email_template_simple.html"
 
 # Used only if data/email_template.html is missing (e.g. first deploy before file is created).
 _FALLBACK_TEMPLATE_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
@@ -120,6 +128,49 @@ _FALLBACK_TEMPLATE_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"/><
 or add <code>data/email_template.html</code>.</p>
 <p><a href="{{UNSUBSCRIBE_URL}}">Unsubscribe</a></p>
 </body></html>"""
+
+_FALLBACK_SIMPLE_TEMPLATE_HTML = """<!DOCTYPE html>
+<html>
+  <body style="margin:0; padding:0; background:#f6f7f6; font-family:Arial, sans-serif; color:#222;">
+    <div style="max-width:640px; margin:0 auto; background:#ffffff; padding:28px; border:1px solid #ddd;">
+      <h2 style="margin-top:0; color:#1f3d2b;">
+        Licensed Clone Availability — Rooted Dominion | Edmond, OK
+      </h2>
+      <p>Hello,</p>
+      <p>
+        Rooted Dominion (Exotic Gardens at Fire Ranch) is a licensed Oklahoma grow operation
+        connecting with other licensed operators regarding available genetics inventory.
+      </p>
+      <p>
+        We provide premium, Metrc-compliant rooted clones and are currently building
+        business relationships with licensed operators in the Oklahoma market.
+      </p>
+      <p>
+        If you would like to receive our current availability list or discuss potential
+        collaboration, feel free to reply to this email or contact us directly.
+      </p>
+      <p>
+        <strong>Scott Whitfield</strong><br />
+        Rooted Dominion<br />
+        Edmond, OK 73034<br />
+        <a href="mailto:admin@arkonesystems.com">admin@arkonesystems.com</a><br />
+        (925) 457-6236
+      </p>
+      <hr style="border:none; border-top:1px solid #ddd; margin:28px 0;" />
+      <p style="font-size:12px; color:#666; line-height:1.5;">
+        You are receiving this email as part of business-to-business communication
+        between licensed operators. If you prefer not to receive future
+        communications, you may
+        <a href="{{unsubscribe_url}}" style="color:#1f6feb;">unsubscribe here</a>.
+      </p>
+      <p style="font-size:12px; color:#666; line-height:1.5;">
+        ArkOne Systems LLC<br />
+        113 NW 13th St, Apt 205<br />
+        Oklahoma City, OK 73103
+      </p>
+    </div>
+  </body>
+</html>"""
 
 
 def read_email_template_string() -> str:
@@ -140,6 +191,27 @@ def write_email_template_file(html: str) -> None:
     except OSError as e:
         raise HTTPException(
             status_code=500, detail=f"Could not save email template: {e}"
+        )
+
+
+def read_simple_email_template_string() -> str:
+    if EMAIL_TEMPLATE_SIMPLE_PATH.is_file():
+        try:
+            return EMAIL_TEMPLATE_SIMPLE_PATH.read_text(encoding="utf-8")
+        except OSError as e:
+            raise HTTPException(
+                status_code=500, detail=f"Could not read simple email template: {e}"
+            )
+    return _FALLBACK_SIMPLE_TEMPLATE_HTML
+
+
+def write_simple_email_template_file(html: str) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        EMAIL_TEMPLATE_SIMPLE_PATH.write_text(html, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not save simple email template: {e}"
         )
 
 
@@ -351,6 +423,59 @@ def get_db():
 @app.get("/")
 def root():
     return {"message": "Backend is running 🚀"}
+
+
+@app.get("/metrc/licenses")
+def metrc_list_licenses():
+    try:
+        return list_licenses()
+    except MetrcError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+
+
+@app.get("/metrc/packages")
+def metrc_packages(
+    facility_license: str = Query(
+        ...,
+        alias="license",
+        min_length=1,
+        description="Facility license number",
+    ),
+):
+    try:
+        return active_packages(facility_license)
+    except MetrcError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+
+
+@app.get("/metrc/transfers")
+def metrc_transfers(
+    facility_license: str = Query(
+        ...,
+        alias="license",
+        min_length=1,
+        description="Facility license number",
+    ),
+):
+    try:
+        return transfers_incoming_outgoing(facility_license)
+    except MetrcError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+
+
+@app.get("/metrc/plants")
+def metrc_plants(
+    facility_license: str = Query(
+        ...,
+        alias="license",
+        min_length=1,
+        description="Facility license number",
+    ),
+):
+    try:
+        return plants_for_license(facility_license)
+    except MetrcError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @app.get("/settings", response_model=SettingsResponse)
@@ -1044,6 +1169,18 @@ def get_campaign_email_template():
 @app.post("/campaigns/template")
 def save_campaign_email_template(payload: CampaignTemplateBody):
     write_email_template_file(payload.html)
+    return {"success": True}
+
+
+@app.get("/campaigns/template/simple")
+def get_campaign_simple_email_template():
+    """Return saved HTML from data/email_template_simple.html, or fallback if missing."""
+    return {"html": read_simple_email_template_string()}
+
+
+@app.post("/campaigns/template/simple")
+def save_campaign_simple_email_template(payload: CampaignTemplateBody):
+    write_simple_email_template_file(payload.html)
     return {"success": True}
 
 

@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useEffect, useMemo, useState, type ComponentType } from "react";
+import { api, getApiErrorMessage } from "@/lib/api";
 
 type IconComp = ComponentType<{ className?: string }>;
 
@@ -146,48 +147,12 @@ const NAV: NavTop[] = [
   },
   {
     kind: "section",
-    id: "metro",
-    label: "Metro",
+    id: "metrc",
+    label: "Metrc",
     icon: MapPin,
-    hidden: true,
-    children: [
-      {
-        kind: "group",
-        id: "metro-grow",
-        label: "Grow",
-        children: [
-          { kind: "leaf", id: "metro-grow-invoices", href: "/metro/grow/invoices", label: "Invoices" },
-          { kind: "leaf", id: "metro-grow-log", href: "/metro/grow/log", label: "Log Page" },
-        ],
-      },
-      {
-        kind: "group",
-        id: "metro-processor",
-        label: "Processor",
-        children: [
-          { kind: "leaf", id: "metro-processor-invoices", href: "/metro/processor/invoices", label: "Invoices" },
-          { kind: "leaf", id: "metro-processor-log", href: "/metro/processor/log", label: "Log Page" },
-        ],
-      },
-      {
-        kind: "group",
-        id: "metro-dispensary",
-        label: "Dispensary",
-        children: [
-          { kind: "leaf", id: "metro-dispensary-invoices", href: "/metro/dispensary/invoices", label: "Invoices" },
-          { kind: "leaf", id: "metro-dispensary-log", href: "/metro/dispensary/log", label: "Log Page" },
-        ],
-      },
-      {
-        kind: "group",
-        id: "metro-transporter",
-        label: "Transporter",
-        children: [
-          { kind: "leaf", id: "metro-transporter-invoices", href: "/metro/transporter/invoices", label: "Invoices" },
-          { kind: "leaf", id: "metro-transporter-log", href: "/metro/transporter/log", label: "Log Page" },
-        ],
-      },
-    ],
+    parentHref: "/metrc",
+    /** License links are injected at runtime from GET /metrc/licenses */
+    children: [],
   },
   { kind: "link", id: "settings", href: "/settings", label: "Settings", icon: Settings },
 ];
@@ -235,6 +200,12 @@ function filterVisibleLeaves(g: NavGroup): NavGroup | null {
   return { ...g, children: vis };
 }
 
+type MetrcFacilityNav = {
+  DisplayName?: string | null;
+  Name?: string | null;
+  License?: { Number?: string | null; LicenseType?: string | null } | null;
+};
+
 function NavLinks({
   onNavigate,
   className,
@@ -246,6 +217,48 @@ function NavLinks({
   const [openSections, setOpenSections] = useState<Set<string>>(() =>
     computeDefaultOpen(pathname)
   );
+  const [metrcLeaves, setMetrcLeaves] = useState<NavLeaf[]>([]);
+  const [metrcNavLoading, setMetrcNavLoading] = useState(true);
+  const [metrcNavError, setMetrcNavError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setMetrcNavLoading(true);
+      setMetrcNavError(null);
+      try {
+        const { data } = await api.get<MetrcFacilityNav[]>("/metrc/licenses");
+        const list = Array.isArray(data) ? data : [];
+        const leaves: NavLeaf[] = [];
+        for (const f of list) {
+          const num = f.License?.Number?.trim();
+          if (!num) continue;
+          const label =
+            f.DisplayName?.trim() ||
+            f.Name?.trim() ||
+            num;
+          const type = f.License?.LicenseType?.trim();
+          leaves.push({
+            kind: "leaf",
+            id: `metrc-lic-${encodeURIComponent(num)}`,
+            href: `/metrc/${encodeURIComponent(num)}`,
+            label: type ? `${label} (${type})` : label,
+          });
+        }
+        if (!cancelled) setMetrcLeaves(leaves);
+      } catch (e) {
+        if (!cancelled) {
+          setMetrcNavError(getApiErrorMessage(e));
+          setMetrcLeaves([]);
+        }
+      } finally {
+        if (!cancelled) setMetrcNavLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     setOpenSections((prev) => {
@@ -324,6 +337,8 @@ function NavLinks({
       })
       .filter(Boolean) as (NavLeaf | NavGroup)[];
 
+    const isMetrcSection = section.id === "metrc";
+
     return (
       <div key={section.id} className="space-y-1">
         <div
@@ -377,10 +392,24 @@ function NavLinks({
 
         {isOpen && (
           <div id={`nav-section-${section.id}`} className="space-y-1 pl-2 pt-0.5">
-            {visibleChildren.map((ch) => {
-              if (ch.kind === "leaf") return renderLeaf(ch, "pl-7");
-              return <div key={ch.id}>{renderGroup(ch, 0)}</div>;
-            })}
+            {isMetrcSection ? (
+              <>
+                {metrcNavLoading ? (
+                  <p className="pl-7 text-sm text-[#D4A017]/60">Loading licenses…</p>
+                ) : metrcNavError ? (
+                  <p className="pl-7 text-sm text-red-400/90">{metrcNavError}</p>
+                ) : metrcLeaves.length === 0 ? (
+                  <p className="pl-7 text-sm text-[#D4A017]/60">No licenses found</p>
+                ) : (
+                  metrcLeaves.map((leaf) => renderLeaf(leaf, "pl-7"))
+                )}
+              </>
+            ) : (
+              visibleChildren.map((ch) => {
+                if (ch.kind === "leaf") return renderLeaf(ch, "pl-7");
+                return <div key={ch.id}>{renderGroup(ch, 0)}</div>;
+              })
+            )}
           </div>
         )}
       </div>
