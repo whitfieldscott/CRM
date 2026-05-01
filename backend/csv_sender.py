@@ -17,49 +17,7 @@ BATCH_SIZE = 50
 DELAY_BETWEEN_EMAILS = 1.5
 DELAY_BETWEEN_BATCHES = 60
 
-# Warmup schedule
-WARMUP_SCHEDULE = {
-    1: 200,
-    2: 200,
-    3: 200,
-    4: 200,
-    5: 200,
-    6: 200,
-    7: 200,
-    8: 400,
-    9: 400,
-    10: 400,
-    11: 400,
-    12: 400,
-    13: 400,
-    14: 400,
-    15: 800,
-    16: 800,
-    17: 800,
-    18: 800,
-    19: 800,
-    20: 800,
-    21: 800,
-}
-
-WARMUP_START_DATE = datetime(2026, 4, 13)
 TRACKING_FILE = "../data/send_tracking.json"
-
-
-def get_daily_limit() -> int:
-    today = datetime.now()
-    days_since_start = (today - WARMUP_START_DATE).days + 1
-
-    if days_since_start < 1:
-        days_since_start = 1
-
-    if days_since_start > 21:
-        print(f"📅 Day {days_since_start} — Warmup complete. Sending full list.")
-        return 999999
-
-    limit = WARMUP_SCHEDULE.get(days_since_start, 200)
-    print(f"📅 Day {days_since_start} of warmup — Daily limit: {limit} emails")
-    return limit
 
 
 def load_tracking() -> dict:
@@ -151,7 +109,7 @@ admin@arkonesystems.com
 
     test_mode = get_test_mode()
     override = (test_email_override or "").strip().lower()
-    daily_limit = get_daily_limit()
+    daily_limit = 999999
 
     unsubscribed = get_unsubscribed_emails()
     print(f"🚫 Unsubscribed emails on file: {len(unsubscribed)}")

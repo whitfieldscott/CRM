@@ -7,8 +7,6 @@ from typing import Optional
 from csv_sender import (
     BATCH_SIZE,
     DELAY_BETWEEN_BATCHES,
-    WARMUP_SCHEDULE,
-    WARMUP_START_DATE,
 )
 from sms_service import TEST_SMS_TO, normalize_us_e164, send_sms
 
@@ -18,16 +16,9 @@ SMS_TRACKING_FILE = "../data/sms_send_tracking.json"
 
 
 def get_sms_daily_limit() -> int:
-    """Same warmup schedule as email (SMS uses same daily cap model)."""
-    today = datetime.now()
-    days_since_start = (today - WARMUP_START_DATE).days + 1
-    if days_since_start < 1:
-        days_since_start = 1
-    if days_since_start > 21:
-        return 999999
-    limit = WARMUP_SCHEDULE.get(days_since_start, 200)
-    print(f"📅 SMS day {days_since_start} — daily limit: {limit}")
-    return limit
+    """No warmup schedule — send full list."""
+    print("📅 SMS — no daily limit, sending full list")
+    return 999999
 
 
 def _load_tracking() -> dict:

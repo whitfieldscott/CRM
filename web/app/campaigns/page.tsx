@@ -68,11 +68,38 @@ const PRE_ORDER_ANCHOR = "Place your pre-order now:</p>";
 const PRE_ORDER_INNER_OPEN =
   '<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">';
 
-type AvailableRow = { id: string; strain: string; qty: string };
+type InventoryRow = { id: string; strain: string; details: string; qty: string };
+type InventoryCategoryType = "Clones" | "Teens" | "Seeds" | "Other";
+type InventoryCategory = {
+  id: string;
+  categoryType: InventoryCategoryType;
+  customName: string;
+  header: string;
+  price: string;
+  rows: InventoryRow[];
+};
 type PreOrderRow = { id: string; strain: string; genetics: string };
+type TemplateKind = "full" | "simple";
 
 function newInvRowId(): string {
   return `inv-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function newCategoryId(): string {
+  return `cat-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function colorForCategoryType(type: InventoryCategoryType): string {
+  if (type === "Clones") return "#2d6e3e";
+  if (type === "Teens") return "#1a4a7a";
+  if (type === "Seeds") return "#92400e";
+  return "#3a3a3a";
+}
+
+function categoryDisplayName(category: InventoryCategory): string {
+  return category.categoryType === "Other"
+    ? category.customName.trim() || "Other"
+    : category.categoryType;
 }
 
 function deliveryRatePct(sent: number, failed: number): number {
@@ -95,7 +122,7 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function createInitialAvailableRows(): AvailableRow[] {
+function createInitialCloneRows(): InventoryRow[] {
   const pairs: [string, string][] = [
     ["Super Boof", "200"],
     ["Black Cherry Gelato", "100"],
@@ -111,8 +138,39 @@ function createInitialAvailableRows(): AvailableRow[] {
   return pairs.map(([strain, qty]) => ({
     id: newInvRowId(),
     strain,
+    details: "",
     qty,
   }));
+}
+
+function createEmptyInventoryRows(count: number): InventoryRow[] {
+  return Array.from({ length: count }, () => ({
+    id: newInvRowId(),
+    strain: "",
+    details: "",
+    qty: "",
+  }));
+}
+
+function createInitialInventoryCategories(): InventoryCategory[] {
+  return [
+    {
+      id: newCategoryId(),
+      categoryType: "Clones",
+      customName: "",
+      header: "Rooted & Ready",
+      price: "$5 each",
+      rows: createInitialCloneRows(),
+    },
+    {
+      id: newCategoryId(),
+      categoryType: "Teens",
+      customName: "",
+      header: "2-3 Week Veg",
+      price: "$15 each",
+      rows: createEmptyInventoryRows(3),
+    },
+  ];
 }
 
 function createInitialPreOrderRows(): PreOrderRow[] {
@@ -152,29 +210,49 @@ function createInitialPreOrderRows(): PreOrderRow[] {
 
 function replaceAvailableRowsInHtml(
   source: string,
-  rows: { strain: string; qty: string }[]
+  categories: InventoryCategory[]
 ): { ok: boolean; html: string } {
   const start = source.indexOf(AVAILABLE_INNER_OPEN);
   if (start === -1) return { ok: false, html: source };
-  const afterOpen = start + AVAILABLE_INNER_OPEN.length;
-  const qtyIdx = source.indexOf(">Qty</td>", afterOpen);
-  if (qtyIdx === -1) return { ok: false, html: source };
-  const headerRowEnd = source.indexOf("</tr>", qtyIdx);
-  if (headerRowEnd === -1) return { ok: false, html: source };
-  const bodyStart = headerRowEnd + "</tr>".length;
-  const bodyEnd = source.indexOf("</table>", bodyStart);
+  const bodyEnd = source.indexOf("</table>", start);
   if (bodyEnd === -1) return { ok: false, html: source };
-  const built = rows
-    .map((r, i) => {
-      const bg = i % 2 === 0 ? "#ffffff" : "#f4f9f5";
-      const qtyClean = String(r.qty).replace(/[^0-9]/g, "") || "0";
-      return `<tr style="background-color:${bg};"><td style="font-size:13px;color:#333333;padding:6px 12px;">${escHtml(r.strain)}</td><td style="font-size:13px;color:#2d6e3e;font-weight:bold;padding:6px 12px;">${escHtml(qtyClean)}</td></tr>`;
+  const end = bodyEnd + "</table>".length;
+
+  const blocks = categories
+    .map((category) => {
+      const rows = category.rows.filter(
+        (r) => r.strain.trim() || r.details.trim() || r.qty.trim()
+      );
+      if (!rows.length) return "";
+      const showDetails = rows.some((r) => r.details.trim());
+      const titleName = categoryDisplayName(category).toUpperCase();
+      const titleHeader = category.header.trim().toUpperCase();
+      const titlePrice = category.price.trim().toUpperCase();
+      const titleBits = [titleName, titleHeader].filter(Boolean).join(" — ");
+      const titleText = titlePrice ? `${titleBits} · ${titlePrice}` : titleBits;
+      const categoryColor = colorForCategoryType(category.categoryType);
+      const tableRows = rows
+        .map((r, i) => {
+          const bg = i % 2 === 0 ? "#ffffff" : "#f4f9f5";
+          const qtyClean = String(r.qty).replace(/[^0-9]/g, "") || "0";
+          if (showDetails) {
+            return `<tr style="background-color:${bg};"><td style="font-size:13px;color:#333333;padding:6px 12px;">${escHtml(r.strain || "—")}</td><td style="font-size:12px;color:#666666;padding:6px 12px;">${escHtml(r.details)}</td><td style="font-size:13px;color:${escHtml(categoryColor)};font-weight:bold;padding:6px 12px;">${escHtml(qtyClean)}</td></tr>`;
+          }
+          return `<tr style="background-color:${bg};"><td style="font-size:13px;color:#333333;padding:6px 12px;">${escHtml(r.strain || "—")}</td><td style="font-size:13px;color:${escHtml(categoryColor)};font-weight:bold;padding:6px 12px;">${escHtml(qtyClean)}</td></tr>`;
+        })
+        .join("\n                    ");
+      const cols = showDetails
+        ? '<tr><td style="font-size:13px;font-weight:bold;color:#ffffff;padding:8px 12px;">Strain</td><td style="font-size:13px;font-weight:bold;color:#ffffff;padding:8px 12px;">Details</td><td style="font-size:13px;font-weight:bold;color:#ffffff;padding:8px 12px;">Qty</td></tr>'
+        : '<tr><td style="font-size:13px;font-weight:bold;color:#ffffff;padding:8px 12px;">Strain</td><td style="font-size:13px;font-weight:bold;color:#ffffff;padding:8px 12px;">Qty</td></tr>';
+      return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse; background:#f9f9f9; margin-bottom:12px;"><tr style="background:${escHtml(categoryColor)};"><td colspan="${showDetails ? 3 : 2}" style="font-size:13px;color:#ffffff;font-weight:bold;padding:8px 12px;letter-spacing:0.2px;">${escHtml(titleText)}</td></tr>${cols}${tableRows ? `\n                    ${tableRows}` : ""}</table>`;
     })
-    .join("\n                    ");
-  const replacement = `\n                    ${built}`;
+    .filter(Boolean)
+    .join("\n                  ");
+
+  const replacement = blocks || source.slice(start, end);
   return {
     ok: true,
-    html: source.slice(0, bodyStart) + replacement + source.slice(bodyEnd),
+    html: source.slice(0, start) + replacement + source.slice(end),
   };
 }
 
@@ -219,12 +297,15 @@ export default function CampaignsPage() {
   const [campaignName, setCampaignName] = useState("");
   const [fileName, setFileName] = useState(DEFAULT_CSV);
   const [html, setHtml] = useState("");
+  const [templateKind, setTemplateKind] = useState<TemplateKind>("full");
   const [templateLoading, setTemplateLoading] = useState(true);
   const [savingDraft, setSavingDraft] = useState(false);
   const [editorScrollTop, setEditorScrollTop] = useState(0);
 
-  const [availableRows, setAvailableRows] = useState<AvailableRow[]>(
-    createInitialAvailableRows
+  const [inventoryCategories, setInventoryCategories] = useState<
+    InventoryCategory[]
+  >(
+    createInitialInventoryCategories
   );
   const [preOrderRows, setPreOrderRows] = useState<PreOrderRow[]>(
     createInitialPreOrderRows
@@ -256,12 +337,27 @@ export default function CampaignsPage() {
     [html]
   );
 
-  const loadTemplate = useCallback(async () => {
+  const templateApiPath = useMemo(
+    () =>
+      templateKind === "full"
+        ? "/campaigns/template"
+        : "/campaigns/template/simple",
+    [templateKind]
+  );
+  const templateLabel = useMemo(
+    () =>
+      templateKind === "full"
+        ? "Full Inventory Template"
+        : "Simple B2B Template",
+    [templateKind]
+  );
+
+  const loadTemplate = useCallback(async (kind: TemplateKind) => {
+    const endpoint =
+      kind === "full" ? "/campaigns/template" : "/campaigns/template/simple";
     setTemplateLoading(true);
     try {
-      const { data } = await api.get<CampaignTemplateResponse>(
-        "/campaigns/template"
-      );
+      const { data } = await api.get<CampaignTemplateResponse>(endpoint);
       setHtml(data.html);
     } catch (e) {
       toast.error(getApiErrorMessage(e));
@@ -283,20 +379,20 @@ export default function CampaignsPage() {
   }, []);
 
   useEffect(() => {
-    void loadTemplate();
+    void loadTemplate(templateKind);
     void loadHistory();
-  }, [loadTemplate, loadHistory]);
+  }, [loadTemplate, loadHistory, templateKind]);
 
   async function saveDraft() {
     setSavingDraft(true);
     try {
       const { data } = await api.post<CampaignTemplateSaveResponse>(
-        "/campaigns/template",
+        templateApiPath,
         { html }
       );
       if (data.success) {
         toast.success("Draft saved.");
-        await loadTemplate();
+        await loadTemplate(templateKind);
       }
     } catch (e) {
       toast.error(getApiErrorMessage(e));
@@ -343,7 +439,7 @@ export default function CampaignsPage() {
     setSending(true);
     setSendResult(null);
     try {
-      await api.post<CampaignTemplateSaveResponse>("/campaigns/template", {
+      await api.post<CampaignTemplateSaveResponse>(templateApiPath, {
         html,
       });
       const { data } = await api.post<CampaignSendAPIResponse>(
@@ -368,7 +464,7 @@ export default function CampaignsPage() {
   }
 
   function updateEmailTemplateFromInventory() {
-    const avail = replaceAvailableRowsInHtml(html, availableRows);
+    const avail = replaceAvailableRowsInHtml(html, inventoryCategories);
     if (!avail.ok) {
       toast.error(
         "Could not find the Available Now table in the HTML. Restore the standard template or edit the source manually."
@@ -413,7 +509,34 @@ export default function CampaignsPage() {
             >
               {/* Left — HTML textarea */}
               <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-3 lg:w-1/2">
-                <div className="grid shrink-0 gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Template</Label>
+                <div className="flex flex-wrap items-center gap-4 rounded-md border p-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="campaign-template-kind"
+                      checked={templateKind === "full"}
+                      onChange={() => setTemplateKind("full")}
+                    />
+                    <span>Full Inventory Template</span>
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="campaign-template-kind"
+                      checked={templateKind === "simple"}
+                      onChange={() => setTemplateKind("simple")}
+                    />
+                    <span>Simple B2B Template</span>
+                  </label>
+                  <span className="text-xs text-muted-foreground">
+                    Active: {templateLabel}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid shrink-0 gap-3 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="campaign-name">
                       Campaign name{" "}
@@ -502,102 +625,310 @@ export default function CampaignsPage() {
                     <ChevronDown className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180" />
                   </summary>
                   <div className="max-h-[min(520px,50vh)] space-y-4 overflow-y-auto border-t border-[#2d6e3e]/15 p-4">
-                    <div className="grid gap-4 lg:grid-cols-2">
-                      <div className="space-y-2 rounded-md border border-[#2d6e3e]/20 bg-white">
-                        <div className="border-b border-[#2d6e3e]/15 bg-[#2d6e3e]/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#2d6e3e]">
-                          Available Now
-                        </div>
-                        <div className="overflow-x-auto p-2">
-                          <Table>
-                            <TableHeader>
-                              <TableRow className="hover:bg-transparent">
-                                <TableHead className="text-[#2d6e3e]">
-                                  Strain
-                                </TableHead>
-                                <TableHead className="w-[120px] text-[#2d6e3e]">
-                                  Qty
-                                </TableHead>
-                                <TableHead className="w-12 text-right text-[#2d6e3e]">
-                                  {""}
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {availableRows.map((row) => (
-                                <TableRow key={row.id} className="hover:bg-muted/40">
-                                  <TableCell className="py-2">
-                                    <Input
-                                      className="h-8 border-[#2d6e3e]/25 bg-white text-sm"
-                                      value={row.strain}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        setAvailableRows((prev) =>
-                                          prev.map((r) =>
-                                            r.id === row.id ? { ...r, strain: v } : r
-                                          )
-                                        );
-                                      }}
-                                      placeholder="Strain"
-                                    />
-                                  </TableCell>
-                                  <TableCell className="py-2">
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      className="h-8 border-[#2d6e3e]/25 bg-white text-sm"
-                                      value={row.qty}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        setAvailableRows((prev) =>
-                                          prev.map((r) =>
-                                            r.id === row.id ? { ...r, qty: v } : r
-                                          )
-                                        );
-                                      }}
-                                    />
-                                  </TableCell>
-                                  <TableCell className="py-2 text-right">
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                                      disabled={availableRows.length <= 1}
-                                      onClick={() =>
-                                        setAvailableRows((prev) =>
-                                          prev.filter((r) => r.id !== row.id)
-                                        )
-                                      }
-                                      aria-label="Remove row"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                        <div className="border-t border-[#2d6e3e]/10 p-2">
+                    <div className="space-y-4">
+                      <div className="space-y-3 rounded-md border border-[#2d6e3e]/20 bg-white p-3 shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h3 className="text-sm font-semibold uppercase tracking-wide text-[#2d6e3e]">
+                            Available Now Categories
+                          </h3>
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
-                            className="w-full border-[#2d6e3e]/35 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
+                            className="border-[#2d6e3e]/35 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
                             onClick={() =>
-                              setAvailableRows((prev) => [
+                              setInventoryCategories((prev) => [
                                 ...prev,
                                 {
-                                  id: newInvRowId(),
-                                  strain: "",
-                                  qty: "0",
+                                  id: newCategoryId(),
+                                  categoryType: "Other",
+                                  customName: "",
+                                  header: "",
+                                  price: "",
+                                  rows: createEmptyInventoryRows(3),
                                 },
                               ])
                             }
                           >
                             <Plus className="mr-2 h-4 w-4" />
-                            Add row
+                            Add Category
                           </Button>
+                        </div>
+
+                        <div className="space-y-4">
+                          {inventoryCategories.map((cat) => (
+                            <div
+                              key={cat.id}
+                              className="overflow-hidden rounded-lg border border-border bg-white shadow-sm"
+                            >
+                              <div
+                                className="px-3 py-2 text-sm font-semibold text-white"
+                                style={{
+                                  backgroundColor: colorForCategoryType(cat.categoryType),
+                                }}
+                              >
+                                {categoryDisplayName(cat)}
+                              </div>
+                              <div className="space-y-3 p-3">
+                                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Category name</Label>
+                                    <select
+                                      className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                                      value={cat.categoryType}
+                                      onChange={(e) => {
+                                        const v = e.target.value as InventoryCategoryType;
+                                        setInventoryCategories((prev) =>
+                                          prev.map((c) =>
+                                            c.id === cat.id
+                                              ? {
+                                                  ...c,
+                                                  categoryType: v,
+                                                  customName:
+                                                    v === "Other" ? c.customName : "",
+                                                }
+                                              : c
+                                          )
+                                        );
+                                      }}
+                                    >
+                                      <option value="Clones">Clones</option>
+                                      <option value="Teens">Teens</option>
+                                      <option value="Seeds">Seeds</option>
+                                      <option value="Other">Other</option>
+                                    </select>
+                                  </div>
+                                  {cat.categoryType === "Other" ? (
+                                    <div className="space-y-1">
+                                      <Label className="text-xs">Custom category name</Label>
+                                      <Input
+                                        value={cat.customName}
+                                        onChange={(e) => {
+                                          const v = e.target.value;
+                                          setInventoryCategories((prev) =>
+                                            prev.map((c) =>
+                                              c.id === cat.id
+                                                ? { ...c, customName: v }
+                                                : c
+                                            )
+                                          );
+                                        }}
+                                        placeholder="Custom name"
+                                      />
+                                    </div>
+                                  ) : null}
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Header / description</Label>
+                                    <Input
+                                      value={cat.header}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setInventoryCategories((prev) =>
+                                          prev.map((c) =>
+                                            c.id === cat.id ? { ...c, header: v } : c
+                                          )
+                                        );
+                                      }}
+                                      placeholder="Rooted & Ready"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Price</Label>
+                                    <Input
+                                      value={cat.price}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setInventoryCategories((prev) =>
+                                          prev.map((c) =>
+                                            c.id === cat.id ? { ...c, price: v } : c
+                                          )
+                                        );
+                                      }}
+                                      placeholder="$5 each"
+                                    />
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-xs">Category color</Label>
+                                    <div className="flex h-10 items-center rounded-md border border-input bg-background px-3 text-sm text-muted-foreground">
+                                      {colorForCategoryType(cat.categoryType)}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="overflow-x-auto rounded-md border">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow className="hover:bg-transparent">
+                                        <TableHead>Strain</TableHead>
+                                        <TableHead>Details / variety</TableHead>
+                                        <TableHead className="w-[120px]">Qty</TableHead>
+                                        <TableHead className="w-12 text-right">
+                                          {""}
+                                        </TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {cat.rows.map((row) => (
+                                        <TableRow key={row.id} className="hover:bg-muted/40">
+                                          <TableCell className="py-2">
+                                            <Input
+                                              className="h-8 text-sm"
+                                              value={row.strain}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setInventoryCategories((prev) =>
+                                                  prev.map((c) =>
+                                                    c.id !== cat.id
+                                                      ? c
+                                                      : {
+                                                          ...c,
+                                                          rows: c.rows.map((r) =>
+                                                            r.id === row.id
+                                                              ? { ...r, strain: v }
+                                                              : r
+                                                          ),
+                                                        }
+                                                  )
+                                                );
+                                              }}
+                                              placeholder="Strain"
+                                            />
+                                          </TableCell>
+                                          <TableCell className="py-2">
+                                            <Input
+                                              className="h-8 text-sm"
+                                              value={row.details}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setInventoryCategories((prev) =>
+                                                  prev.map((c) =>
+                                                    c.id !== cat.id
+                                                      ? c
+                                                      : {
+                                                          ...c,
+                                                          rows: c.rows.map((r) =>
+                                                            r.id === row.id
+                                                              ? { ...r, details: v }
+                                                              : r
+                                                          ),
+                                                        }
+                                                  )
+                                                );
+                                              }}
+                                              placeholder="Rooted / 3 week veg / feminized"
+                                            />
+                                          </TableCell>
+                                          <TableCell className="py-2">
+                                            <Input
+                                              type="number"
+                                              min={0}
+                                              className="h-8 text-sm"
+                                              value={row.qty}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setInventoryCategories((prev) =>
+                                                  prev.map((c) =>
+                                                    c.id !== cat.id
+                                                      ? c
+                                                      : {
+                                                          ...c,
+                                                          rows: c.rows.map((r) =>
+                                                            r.id === row.id
+                                                              ? { ...r, qty: v }
+                                                              : r
+                                                          ),
+                                                        }
+                                                  )
+                                                );
+                                              }}
+                                            />
+                                          </TableCell>
+                                          <TableCell className="py-2 text-right">
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                              disabled={cat.rows.length <= 1}
+                                              onClick={() =>
+                                                setInventoryCategories((prev) =>
+                                                  prev.map((c) =>
+                                                    c.id !== cat.id
+                                                      ? c
+                                                      : {
+                                                          ...c,
+                                                          rows: c.rows.filter(
+                                                            (r) => r.id !== row.id
+                                                          ),
+                                                        }
+                                                  )
+                                                )
+                                              }
+                                              aria-label="Remove row"
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-[#2d6e3e]/35 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
+                                    onClick={() =>
+                                      setInventoryCategories((prev) =>
+                                        prev.map((c) =>
+                                          c.id !== cat.id
+                                            ? c
+                                            : {
+                                                ...c,
+                                                rows: [
+                                                  ...c.rows,
+                                                  {
+                                                    id: newInvRowId(),
+                                                    strain: "",
+                                                    details: "",
+                                                    qty: "",
+                                                  },
+                                                ],
+                                              }
+                                        )
+                                      )
+                                    }
+                                  >
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Add Row
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-destructive/40 text-destructive hover:bg-destructive/10"
+                                    onClick={() => {
+                                      if (
+                                        window.confirm(
+                                          `Remove category "${categoryDisplayName(cat)}"?`
+                                        )
+                                      ) {
+                                        setInventoryCategories((prev) =>
+                                          prev.filter((c) => c.id !== cat.id)
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Remove Category
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
 
@@ -748,6 +1079,9 @@ export default function CampaignsPage() {
               {/* Right — live preview */}
               <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-2 lg:w-1/2">
                 <Label className="shrink-0 text-base font-medium">Preview</Label>
+                <p className="shrink-0 text-sm text-muted-foreground">
+                  Previewing: {templateLabel}
+                </p>
                 <iframe
                   title="Email preview"
                   className="min-h-0 w-full flex-1 overflow-auto rounded-md border border-border bg-muted/20"
@@ -872,8 +1206,12 @@ export default function CampaignsPage() {
             <DialogTitle>Send this campaign?</DialogTitle>
             <DialogDescription>
               On confirm, your editor content is saved to{" "}
-              <code className="text-xs">data/email_template.html</code>, then the
-              campaign is sent.
+              <code className="text-xs">
+                {templateKind === "full"
+                  ? "data/email_template.html"
+                  : "data/email_template_simple.html"}
+              </code>
+              , then the campaign is sent.
               {emailTestMode
                 ? ` All messages go to ${testEmail.trim() || "your test address"}.`
                 : " Recipients follow server TEST_MODE when no test address is set in the campaign UI."}
