@@ -65,13 +65,13 @@ from schemas import (
     SmsSendBody,
 )
 from settings_store import get_test_mode, set_test_mode
-from metrc_service import (
-    MetrcError,
-    active_packages,
-    list_licenses,
-    plants_for_license,
-    transfers_incoming_outgoing,
-)
+# from metrc_service import (
+#     MetrcError,
+#     active_packages,
+#     list_licenses,
+#     plants_for_license,
+#     transfers_incoming_outgoing,
+# )
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -425,57 +425,57 @@ def root():
     return {"message": "Backend is running 🚀"}
 
 
-@app.get("/metrc/licenses")
-def metrc_list_licenses():
-    try:
-        return list_licenses()
-    except MetrcError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+# @app.get("/metrc/licenses")
+# def metrc_list_licenses():
+#     try:
+#         return list_licenses()
+#     except MetrcError as e:
+#         raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
-@app.get("/metrc/packages")
-def metrc_packages(
-    facility_license: str = Query(
-        ...,
-        alias="license",
-        min_length=1,
-        description="Facility license number",
-    ),
-):
-    try:
-        return active_packages(facility_license)
-    except MetrcError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+# @app.get("/metrc/packages")
+# def metrc_packages(
+#     facility_license: str = Query(
+#         ...,
+#         alias="license",
+#         min_length=1,
+#         description="Facility license number",
+#     ),
+# ):
+#     try:
+#         return active_packages(facility_license)
+#     except MetrcError as e:
+#         raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
-@app.get("/metrc/transfers")
-def metrc_transfers(
-    facility_license: str = Query(
-        ...,
-        alias="license",
-        min_length=1,
-        description="Facility license number",
-    ),
-):
-    try:
-        return transfers_incoming_outgoing(facility_license)
-    except MetrcError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+# @app.get("/metrc/transfers")
+# def metrc_transfers(
+#     facility_license: str = Query(
+#         ...,
+#         alias="license",
+#         min_length=1,
+#         description="Facility license number",
+#     ),
+# ):
+#     try:
+#         return transfers_incoming_outgoing(facility_license)
+#     except MetrcError as e:
+#         raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
-@app.get("/metrc/plants")
-def metrc_plants(
-    facility_license: str = Query(
-        ...,
-        alias="license",
-        min_length=1,
-        description="Facility license number",
-    ),
-):
-    try:
-        return plants_for_license(facility_license)
-    except MetrcError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.detail) from e
+# @app.get("/metrc/plants")
+# def metrc_plants(
+#     facility_license: str = Query(
+#         ...,
+#         alias="license",
+#         min_length=1,
+#         description="Facility license number",
+#     ),
+# ):
+#     try:
+#         return plants_for_license(facility_license)
+#     except MetrcError as e:
+#         raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
 @app.get("/settings", response_model=SettingsResponse)
