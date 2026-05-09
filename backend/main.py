@@ -1,4 +1,5 @@
 import io
+import json
 import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -8,6 +9,7 @@ from urllib.parse import quote
 
 import pandas as pd
 import requests
+from pydantic import BaseModel, ConfigDict
 from csv_sender import send_bulk_emails
 from sms_sender import send_bulk_sms
 from sms_service import TEST_SMS_TO, normalize_us_e164, twilio_configured
@@ -45,7 +47,6 @@ from schemas import (
     TabularImportRow,
     CampaignLogCreate,
     CampaignLogResponse,
-    CampaignSendBody,
     CampaignTemplateBody,
     ClientCreate,
     ClientNoteCreate,
@@ -86,6 +87,72 @@ app.add_middleware(
 )
 
 
+class CampaignDetailEmailSend(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    recipient_email: str
+    success: bool
+    sent_at: Optional[datetime] = None
+    subject: Optional[str] = None
+
+
+class CampaignDetailStats(BaseModel):
+    total_sent: int
+    total_failed: int
+    total_skipped: int
+    success_rate: float
+
+
+class CampaignDeliveryIssue(BaseModel):
+    email: str
+    reason: str
+    occurred_at: Optional[datetime] = None
+
+
+class CampaignDetailsResponse(BaseModel):
+    campaign: CampaignLogResponse
+    email_sends: list[CampaignDetailEmailSend]
+    stats: CampaignDetailStats
+    failed_emails: list[CampaignDetailEmailSend]
+    delivery_issues: list[CampaignDeliveryIssue]
+
+
+class TemplateListItemResponse(BaseModel):
+    id: str
+    name: str
+    created_at: str
+    updated_at: str
+
+
+class TemplateFullResponse(BaseModel):
+    id: str
+    name: str
+    html: str
+
+
+class TemplateCreateBody(BaseModel):
+    name: str
+    html: str
+
+
+class TemplateUpdateBody(BaseModel):
+    name: str
+    html: str
+
+
+class TemplateCreateResponse(BaseModel):
+    id: str
+    name: str
+    success: bool
+
+
+class CampaignSendRequest(BaseModel):
+    campaign_name: str
+    file_name: str
+    test_email: Optional[str] = None
+    html_content: Optional[str] = None
+
+
 def normalize_csv_header(col: str) -> str:
     s = str(col).strip().lower().replace(".", "").replace(" ", "_").replace("-", "_")
     while "__" in s:
@@ -120,6 +187,8 @@ def load_and_clean_csv(file_path: str) -> pd.DataFrame:
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 EMAIL_TEMPLATE_PATH = DATA_DIR / "email_template.html"
 EMAIL_TEMPLATE_SIMPLE_PATH = DATA_DIR / "email_template_simple.html"
+TEMPLATES_DIR = DATA_DIR / "templates"
+TEMPLATES_INDEX_PATH = TEMPLATES_DIR / "index.json"
 
 # Used only if data/email_template.html is missing (e.g. first deploy before file is created).
 _FALLBACK_TEMPLATE_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"/></head>
@@ -213,6 +282,106 @@ def write_simple_email_template_file(html: str) -> None:
         raise HTTPException(
             status_code=500, detail=f"Could not save simple email template: {e}"
         )
+
+
+def _templates_today_iso() -> str:
+    return datetime.utcnow().date().isoformat()
+
+
+def _ensure_templates_dir() -> None:
+    TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _slug_template_name_for_filename(name: str) -> str:
+    s = re.sub(r"[^\w\-\s]", "", (name or "").strip(), flags=re.UNICODE)
+    s = re.sub(r"[\s_]+", "_", s).strip("_")
+    return s or "template"
+
+
+def _build_managed_template_filename(template_id: str, name: str) -> str:
+    return f"{template_id}_{_slug_template_name_for_filename(name)}.html"
+
+
+def _read_templates_index() -> dict:
+    _ensure_templates_dir()
+    if not TEMPLATES_INDEX_PATH.is_file():
+        return {"templates": []}
+    try:
+        raw = TEMPLATES_INDEX_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return {"templates": []}
+    if not isinstance(data, dict) or not isinstance(data.get("templates"), list):
+        return {"templates": []}
+    return data
+
+
+def _write_templates_index(data: dict) -> None:
+    _ensure_templates_dir()
+    TEMPLATES_INDEX_PATH.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _sorted_template_entries(templates: list) -> list:
+    def sort_key(t: dict) -> tuple:
+        tid = str(t.get("id", ""))
+        try:
+            return (0, int(tid), tid)
+        except ValueError:
+            return (1, 0, tid)
+
+    return sorted(templates, key=sort_key)
+
+
+def _next_managed_template_id(templates: list) -> str:
+    best = 0
+    for t in templates:
+        tid = str(t.get("id", ""))
+        if tid.isdigit():
+            best = max(best, int(tid))
+    return str(best + 1)
+
+
+def ensure_templates_seeded() -> None:
+    """Create data/templates from legacy HTML files when index is missing or empty."""
+    _ensure_templates_dir()
+    data = _read_templates_index()
+    if data.get("templates"):
+        return
+    today = _templates_today_iso()
+    full_html = read_email_template_string()
+    simple_html = read_simple_email_template_string()
+    entries = [
+        {
+            "id": "1",
+            "name": "Clone Availability - Full Inventory",
+            "file": _build_managed_template_filename(
+                "1", "Clone Availability - Full Inventory"
+            ),
+            "created_at": today,
+            "updated_at": today,
+        },
+        {
+            "id": "2",
+            "name": "Simple B2B Introduction",
+            "file": _build_managed_template_filename("2", "Simple B2B Introduction"),
+            "created_at": today,
+            "updated_at": today,
+        },
+    ]
+    for entry, html in zip(entries, [full_html, simple_html]):
+        path = TEMPLATES_DIR / entry["file"]
+        path.write_text(html, encoding="utf-8")
+    _write_templates_index({"templates": entries})
+
+
+def _find_managed_template_entry(data: dict, template_id: str) -> Optional[dict]:
+    for t in data.get("templates", []):
+        if str(t.get("id")) == str(template_id):
+            return t
+    return None
 
 
 def _safe_data_csv_file_name(name: str) -> str:
@@ -410,6 +579,7 @@ def _follow_up_emails_for_kind(db: Session, kind: str) -> set[str]:
 @app.on_event("startup")
 def _startup():
     Base.metadata.create_all(bind=engine)
+    ensure_templates_seeded()
 
 
 def get_db():
@@ -423,6 +593,20 @@ def get_db():
 @app.get("/")
 def root():
     return {"message": "Backend is running 🚀"}
+
+
+@app.get("/data/csv-files")
+def list_data_csv_files():
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        files = sorted(
+            p.name
+            for p in DATA_DIR.iterdir()
+            if p.is_file() and p.suffix.lower() == ".csv"
+        )
+        return {"files": files}
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # @app.get("/metrc/licenses")
@@ -1184,13 +1368,134 @@ def save_campaign_simple_email_template(payload: CampaignTemplateBody):
     return {"success": True}
 
 
+@app.get("/campaigns/templates", response_model=list[TemplateListItemResponse])
+def list_managed_email_templates():
+    ensure_templates_seeded()
+    data = _read_templates_index()
+    return [
+        TemplateListItemResponse(
+            id=str(t["id"]),
+            name=str(t["name"]),
+            created_at=str(t["created_at"]),
+            updated_at=str(t["updated_at"]),
+        )
+        for t in _sorted_template_entries(list(data.get("templates", [])))
+    ]
+
+
+@app.get("/campaigns/templates/{template_id}", response_model=TemplateFullResponse)
+def get_managed_email_template(template_id: str):
+    ensure_templates_seeded()
+    data = _read_templates_index()
+    entry = _find_managed_template_entry(data, template_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Template not found")
+    path = TEMPLATES_DIR / str(entry["file"])
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Template file missing")
+    try:
+        html = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not read template file: {e}"
+        )
+    return TemplateFullResponse(
+        id=str(entry["id"]),
+        name=str(entry["name"]),
+        html=html,
+    )
+
+
+@app.post("/campaigns/templates", response_model=TemplateCreateResponse)
+def create_managed_email_template(payload: TemplateCreateBody):
+    ensure_templates_seeded()
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    data = _read_templates_index()
+    templates = list(data.get("templates", []))
+    new_id = _next_managed_template_id(templates)
+    fn = _build_managed_template_filename(new_id, name)
+    today = _templates_today_iso()
+    entry = {
+        "id": new_id,
+        "name": name,
+        "file": fn,
+        "created_at": today,
+        "updated_at": today,
+    }
+    path = TEMPLATES_DIR / fn
+    try:
+        path.write_text(payload.html, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not save template file: {e}"
+        )
+    templates.append(entry)
+    data["templates"] = templates
+    _write_templates_index(data)
+    return TemplateCreateResponse(id=new_id, name=name, success=True)
+
+
+@app.put("/campaigns/templates/{template_id}")
+def update_managed_email_template(template_id: str, payload: TemplateUpdateBody):
+    ensure_templates_seeded()
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    data = _read_templates_index()
+    entry = _find_managed_template_entry(data, template_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Template not found")
+    old_path = TEMPLATES_DIR / str(entry["file"])
+    new_fn = _build_managed_template_filename(template_id, name)
+    new_path = TEMPLATES_DIR / new_fn
+    try:
+        if old_path.resolve() != new_path.resolve() and old_path.is_file():
+            old_path.unlink()
+        new_path.write_text(payload.html, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(
+            status_code=500, detail=f"Could not update template file: {e}"
+        )
+    entry["name"] = name
+    entry["file"] = new_fn
+    entry["updated_at"] = _templates_today_iso()
+    _write_templates_index(data)
+    return {"success": True}
+
+
+@app.delete("/campaigns/templates/{template_id}")
+def delete_managed_email_template(template_id: str):
+    ensure_templates_seeded()
+    data = _read_templates_index()
+    templates = list(data.get("templates", []))
+    entry = _find_managed_template_entry(data, template_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Template not found")
+    path = TEMPLATES_DIR / str(entry["file"])
+    if path.is_file():
+        try:
+            path.unlink()
+        except OSError as e:
+            raise HTTPException(
+                status_code=500, detail=f"Could not delete template file: {e}"
+            )
+    data["templates"] = [t for t in templates if str(t.get("id")) != str(template_id)]
+    _write_templates_index(data)
+    return {"success": True}
+
+
 @app.post("/campaigns/send")
-def send_campaign_with_template(payload: CampaignSendBody, db: Session = Depends(get_db)):
+def send_campaign_with_template(
+    payload: CampaignSendRequest, db: Session = Depends(get_db)
+):
     """
-    Load HTML from data/email_template.html, send bulk (HTML body, not dynamic template),
-    and update CampaignLog counts.
+    Send bulk HTML email. Uses request html_content when provided (editor body);
+    otherwise falls back to data/email_template.html.
     """
-    template_html = read_email_template_string()
+    hc = (payload.html_content or "").strip()
+    template_html = payload.html_content if hc else read_email_template_string()
     safe_name = _safe_data_csv_file_name(payload.file_name)
     file_path = f"../data/{safe_name}"
     df = load_and_clean_csv(file_path)
@@ -1254,6 +1559,39 @@ def log_campaign(payload: CampaignLogCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(log)
     return log
+
+
+@app.get("/campaigns/{campaign_id}/details", response_model=CampaignDetailsResponse)
+def get_campaign_details(campaign_id: int, db: Session = Depends(get_db)):
+    log = db.query(CampaignLog).filter(CampaignLog.id == campaign_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Campaign log not found")
+
+    sends = (
+        db.query(EmailSendRecord)
+        .filter(EmailSendRecord.campaign_log_id == campaign_id)
+        .order_by(EmailSendRecord.sent_at.asc(), EmailSendRecord.id.asc())
+        .all()
+    )
+    email_sends = [CampaignDetailEmailSend.model_validate(r) for r in sends]
+    failed_emails = [CampaignDetailEmailSend.model_validate(r) for r in sends if not r.success]
+    n = len(sends)
+    successes = sum(1 for r in sends if r.success)
+    success_rate = round(100.0 * successes / n, 1) if n else 0.0
+    stats = CampaignDetailStats(
+        total_sent=log.total_sent,
+        total_failed=log.total_failed,
+        total_skipped=log.total_skipped,
+        success_rate=success_rate,
+    )
+    delivery_issues = _build_campaign_delivery_issues(log, sends)
+    return CampaignDetailsResponse(
+        campaign=CampaignLogResponse.model_validate(log),
+        email_sends=email_sends,
+        stats=stats,
+        failed_emails=failed_emails,
+        delivery_issues=delivery_issues,
+    )
 
 
 @app.get("/campaigns/{campaign_id}", response_model=CampaignLogResponse)
@@ -1350,6 +1688,45 @@ def _fetch_sendgrid_last_30_days() -> SendGridStatsResponse:
     return SendGridStatsResponse(**totals, error=None)
 
 
+def _fetch_sendgrid_stats_for_campaign_day(day: date) -> SendGridStatsResponse:
+    """Aggregate SendGrid v3/stats for a single calendar day (UTC date)."""
+    zeros = {
+        "opens": 0,
+        "clicks": 0,
+        "bounces": 0,
+        "spam_reports": 0,
+        "unsubscribes": 0,
+        "delivered": 0,
+        "requests": 0,
+    }
+    if not SENDGRID_API_KEY:
+        return SendGridStatsResponse(**zeros, error="SENDGRID_API_KEY not configured")
+
+    url = (
+        "https://api.sendgrid.com/v3/stats"
+        f"?start_date={day.isoformat()}&end_date={day.isoformat()}&aggregated_by=day"
+    )
+    try:
+        r = requests.get(url, headers=_sendgrid_auth_headers(), timeout=30)
+        if r.status_code != 200:
+            err = (r.text or "").strip()[:500] or f"SendGrid HTTP {r.status_code}"
+            return SendGridStatsResponse(**zeros, error=err)
+        payload = r.json()
+    except Exception as e:
+        return SendGridStatsResponse(**zeros, error=str(e)[:500])
+
+    totals = dict(zeros)
+    if isinstance(payload, list):
+        for bucket in payload:
+            for block in bucket.get("stats") or []:
+                m = block.get("metrics") or {}
+                part = _sendgrid_block_metrics(m)
+                for k in totals:
+                    totals[k] += part[k]
+
+    return SendGridStatsResponse(**totals, error=None)
+
+
 def _fetch_sendgrid_series(granularity: str) -> SendGridSeriesResponse:
     agg = {"day": "day", "week": "week", "month": "month"}.get(
         granularity, "day"
@@ -1427,6 +1804,78 @@ def _sendgrid_suppression_fetch(kind: Literal["bounce", "unsubscribe"]) -> tuple
     if isinstance(data, dict) and isinstance(data.get("emails"), list):
         return data["emails"], None
     return [], "Unexpected SendGrid response shape"
+
+
+def _suppression_item_created_date(val) -> Optional[date]:
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return None
+    if isinstance(val, (int, float)):
+        try:
+            return datetime.utcfromtimestamp(int(val)).date()
+        except (ValueError, OSError):
+            return None
+    s = str(val).strip()
+    if s.isdigit():
+        try:
+            return datetime.utcfromtimestamp(int(s)).date()
+        except (ValueError, OSError):
+            return None
+    try:
+        if len(s) >= 10:
+            return date.fromisoformat(s[:10])
+    except ValueError:
+        pass
+    return None
+
+
+def _build_campaign_delivery_issues(
+    log: CampaignLog, sends: list[EmailSendRecord]
+) -> list[CampaignDeliveryIssue]:
+    recipients = {s.recipient_email.strip().lower() for s in sends}
+    issues: list[CampaignDeliveryIssue] = []
+    failed_lower: set[str] = set()
+
+    for s in sends:
+        if not s.success:
+            em = s.recipient_email.strip().lower()
+            failed_lower.add(em)
+            issues.append(
+                CampaignDeliveryIssue(
+                    email=s.recipient_email,
+                    reason="Failed to send",
+                    occurred_at=s.sent_at,
+                )
+            )
+
+    camp_day: Optional[date] = None
+    if log.date_sent:
+        ds = log.date_sent
+        camp_day = ds.date() if isinstance(ds, datetime) else ds
+
+    if camp_day and recipients:
+        raw, err = _sendgrid_suppression_fetch("bounce")
+        if not err:
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                raw_email = str(item.get("email") or "").strip()
+                em = raw_email.lower()
+                if not em or em not in recipients:
+                    continue
+                bd = _suppression_item_created_date(item.get("created"))
+                if bd is None or bd != camp_day:
+                    continue
+                if em in failed_lower:
+                    continue
+                issues.append(
+                    CampaignDeliveryIssue(
+                        email=raw_email,
+                        reason="Bounced",
+                        occurred_at=None,
+                    )
+                )
+
+    return issues
 
 
 def _sendgrid_suppression_delete(kind: Literal["bounce", "unsubscribe"], email: str) -> None:
@@ -1639,6 +2088,32 @@ def analytics_sendgrid_series(
     granularity: Literal["day", "week", "month"] = Query("day"),
 ):
     return _fetch_sendgrid_series(granularity)
+
+
+@app.get(
+    "/analytics/sendgrid/campaign/{campaign_id}",
+    response_model=SendGridStatsResponse,
+)
+def analytics_sendgrid_campaign_day(
+    campaign_id: int, db: Session = Depends(get_db)
+):
+    log = db.query(CampaignLog).filter(CampaignLog.id == campaign_id).first()
+    if not log:
+        raise HTTPException(status_code=404, detail="Campaign log not found")
+    if not log.date_sent:
+        return SendGridStatsResponse(
+            opens=0,
+            clicks=0,
+            bounces=0,
+            spam_reports=0,
+            unsubscribes=0,
+            delivered=0,
+            requests=0,
+            error="Campaign has no date_sent",
+        )
+    ds = log.date_sent
+    day = ds.date() if isinstance(ds, datetime) else ds
+    return _fetch_sendgrid_stats_for_campaign_day(day)
 
 
 def _suppression_bounces_response(db: Session) -> SuppressionListResponse:

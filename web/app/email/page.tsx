@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, getApiErrorMessage } from "@/lib/api";
 import type {
   ConfirmSendResponse,
@@ -37,9 +37,12 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { RefreshCw } from "lucide-react";
+
+const DEFAULT_CSV = "Master Grow Email List.csv";
 
 export default function EmailBlasterPage() {
-  const [fileName, setFileName] = useState("");
+  const [fileName, setFileName] = useState(DEFAULT_CSV);
   const [campaignName, setCampaignName] = useState("");
   const [preview, setPreview] = useState<PreviewCsvResponse | null>(null);
   const [confirm, setConfirm] = useState<ConfirmSendResponse | null>(null);
@@ -50,6 +53,30 @@ export default function EmailBlasterPage() {
   const [result, setResult] = useState<SendBulkResponse | null>(null);
   const [emailTestMode, setEmailTestMode] = useState(false);
   const [testEmail, setTestEmail] = useState("");
+  const [csvFiles, setCsvFiles] = useState<string[]>([]);
+  const [csvListLoading, setCsvListLoading] = useState(true);
+
+  const loadCsvFiles = useCallback(async () => {
+    setCsvListLoading(true);
+    try {
+      const { data } = await api.get<{ files: string[] }>("/data/csv-files");
+      setCsvFiles(data.files);
+      setFileName((prev) => {
+        if (data.files.includes(DEFAULT_CSV)) return DEFAULT_CSV;
+        if (data.files.length === 0) return prev;
+        if (data.files.includes(prev)) return prev;
+        return data.files[0];
+      });
+    } catch (e) {
+      toast.error(getApiErrorMessage(e));
+    } finally {
+      setCsvListLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCsvFiles();
+  }, [loadCsvFiles]);
 
   async function runPreview() {
     if (!fileName.trim()) {
@@ -139,13 +166,48 @@ export default function EmailBlasterPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="file">CSV file name</Label>
-              <Input
-                id="file"
-                placeholder="e.g. growers_ok.csv"
-                value={fileName}
-                onChange={(e) => setFileName(e.target.value)}
-              />
+              <Label htmlFor="file">CSV file (on server /data)</Label>
+              <div className="flex gap-2">
+                <select
+                  id="file"
+                  className="h-10 w-full min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  value={
+                    csvFiles.includes(fileName)
+                      ? fileName
+                      : (csvFiles[0] ?? "")
+                  }
+                  onChange={(e) => setFileName(e.target.value)}
+                  disabled={csvListLoading || csvFiles.length === 0}
+                >
+                  {csvFiles.length === 0 ? (
+                    <option value="">—</option>
+                  ) : (
+                    csvFiles.map((f) => (
+                      <option key={f} value={f}>
+                        {f}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  disabled={csvListLoading}
+                  onClick={() => void loadCsvFiles()}
+                  aria-label="Refresh CSV list"
+                >
+                  <RefreshCw
+                    className={`h-4 w-4 ${csvListLoading ? "animate-spin" : ""}`}
+                  />
+                </Button>
+              </div>
+              {!csvListLoading && csvFiles.length === 0 ? (
+                <p className="text-sm text-amber-600">
+                  No CSV files found in data folder
+                </p>
+              ) : null}
             </div>
             <div className="space-y-2">
               <Label htmlFor="campaign">Campaign name (optional)</Label>
