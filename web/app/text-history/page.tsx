@@ -29,9 +29,9 @@ function deliveryRate(sent: number, failed: number): number {
 }
 
 function rateClass(rate: number): string {
-  if (rate > 95) return "font-semibold text-emerald-600";
-  if (rate >= 80) return "font-semibold text-amber-600";
-  return "font-semibold text-red-600";
+  if (rate > 95) return "font-semibold text-success";
+  if (rate >= 80) return "font-semibold text-warning";
+  return "font-semibold text-danger";
 }
 
 export default function TextCampaignHistoryPage() {

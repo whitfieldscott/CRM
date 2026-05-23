@@ -4,12 +4,13 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AppProviders } from "./providers";
 import { AppShell } from "@/components/layout/app-shell";
+import { ThemeScript } from "@/components/theme/theme-script";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Rooted Dominion | Operations",
-  description: "Cannabis operations platform dashboard",
+  title: "CannaCore | Operations",
+  description: "Cannabis operations platform by ArkOne Systems",
 };
 
 export default function RootLayout({
@@ -18,7 +19,10 @@ export default function RootLayout({
   children: ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        <ThemeScript />
+      </head>
       <body className={inter.className}>
         <AppProviders>
           <AppShell>{children}</AppShell>

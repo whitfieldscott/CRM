@@ -2,40 +2,199 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    /* Brand green #2d6e3e → hsl(139, 41%, 30%) */
-    --primary: 139 41% 30%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 139 30% 95%;
-    --accent-foreground: 139 41% 22%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 139 41% 30%;
-    --radius: 0.5rem;
-    /* Sidebar: pure black + gold nav text (#D4A017 ≈ hsl(45, 81%, 46%)) */
-    --sidebar: 0 0% 0%;
-    --sidebar-foreground: 45 81% 46%;
-  }
+/* ── Semantic theme tokens (light defaults) ── */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f4f4f4;
+  --bg-card: #ffffff;
+  --text-primary: #0f1a0f;
+  --text-secondary: #4a5568;
+  --text-muted: #6b7280;
+  --border-color: #e2e8f0;
+  --border-color-soft: #edf2f7;
+  --accent-green: #16a34a;
+  --accent-green-hover: #15803d;
+  --accent-green-bright: #22c55e;
+  --sidebar-bg: #f8fafb;
+  --card-bg: #ffffff;
+  --header-bg: #ffffff;
+  --panel-bg: rgba(255, 255, 255, 0.92);
+  --panel-bg-alt: #f8fafb;
+  --input-bg: #ffffff;
+  --hover-bg: rgba(15, 26, 15, 0.04);
+  --nav-active-bg: rgba(22, 163, 74, 0.12);
+  --shadow-color: rgba(15, 26, 15, 0.08);
+  --gold: #ca8a04;
+  --blue: #2563eb;
+  --purple: #7c3aed;
+  --red: #dc2626;
+  --orange: #ea580c;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --editor-bg: #f5f5f5;
+  --editor-gutter-bg: #ebebeb;
+  --editor-text: #1e1e1e;
+  --editor-muted: #6b7280;
+  --bell-badge-bg: #16a34a;
+  --sync-check: #16a34a;
+  --text-on-accent: #ffffff;
+  --radius-cc: 12px;
+
+  /* App shell gradients */
+  --app-gradient:
+    radial-gradient(circle at 70% 0%, rgba(22, 163, 74, 0.08), transparent 38%),
+    radial-gradient(circle at 25% 100%, rgba(22, 163, 74, 0.05), transparent 32%),
+    linear-gradient(135deg, #f8fafb 0%, #f0f4f1 45%, #e8f0ea 100%);
+  --sidebar-gradient: linear-gradient(180deg, #f8fafb 0%, #f0f4f1 100%);
+  --kpi-gradient:
+    radial-gradient(circle at top left, rgba(22, 163, 74, 0.08), transparent 55%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 251, 0.98));
+  --panel-gradient:
+    radial-gradient(circle at top left, rgba(22, 163, 74, 0.06), transparent 50%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 251, 0.95));
+
+  /* shadcn/ui HSL tokens (light) */
+  --background: 0 0% 100%;
+  --foreground: 145 30% 8%;
+  --card: 0 0% 100%;
+  --card-foreground: 145 30% 8%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 145 30% 8%;
+  --primary: 142 76% 36%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 210 20% 96%;
+  --secondary-foreground: 145 30% 12%;
+  --muted: 210 20% 96%;
+  --muted-foreground: 215 16% 46%;
+  --accent: 142 30% 95%;
+  --accent-foreground: 142 76% 26%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 142 76% 36%;
+  --radius: 0.5rem;
+  --sidebar: 150 20% 98%;
+  --sidebar-foreground: 145 30% 12%;
+}
+
+html.dark {
+  --bg-primary: #0f1a0f;
+  --bg-secondary: #1a2e1a;
+  --bg-card: #1e2d1e;
+  --text-primary: #f0fdf4;
+  --text-secondary: #9ca3af;
+  --text-muted: #9ba8a1;
+  --border-color: #2d3f2d;
+  --border-color-soft: rgba(255, 255, 255, 0.06);
+  --accent-green: #16a34a;
+  --accent-green-hover: #22c55e;
+  --accent-green-bright: #69c653;
+  --sidebar-bg: #111f11;
+  --card-bg: #1a2a1a;
+  --header-bg: #0d1a0d;
+  --panel-bg: rgba(255, 255, 255, 0.035);
+  --panel-bg-alt: rgba(255, 255, 255, 0.025);
+  --input-bg: rgba(255, 255, 255, 0.035);
+  --hover-bg: rgba(255, 255, 255, 0.05);
+  --nav-active-bg: linear-gradient(90deg, rgba(105, 198, 83, 0.3), rgba(105, 198, 83, 0.1));
+  --shadow-color: rgba(0, 0, 0, 0.35);
+  --editor-bg: #1e1e1e;
+  --editor-gutter-bg: #252526;
+  --editor-text: #d4d4d4;
+  --editor-muted: #858585;
+
+  --app-gradient:
+    radial-gradient(circle at 70% 0%, rgba(39, 92, 54, 0.22), transparent 38%),
+    radial-gradient(circle at 25% 100%, rgba(38, 116, 70, 0.13), transparent 32%),
+    linear-gradient(135deg, #020504 0%, #06100d 45%, #0c1d15 100%);
+  --sidebar-gradient: linear-gradient(180deg, #020706 0%, #06110e 100%);
+  --kpi-gradient:
+    radial-gradient(circle at top left, rgba(105, 198, 83, 0.06), transparent 55%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018));
+  --panel-gradient:
+    radial-gradient(circle at top left, rgba(105, 198, 83, 0.04), transparent 50%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.018));
+
+  --background: 145 30% 5%;
+  --foreground: 140 20% 96%;
+  --card: 145 25% 12%;
+  --card-foreground: 140 20% 96%;
+  --popover: 145 25% 12%;
+  --popover-foreground: 140 20% 96%;
+  --primary: 142 76% 36%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 145 20% 16%;
+  --secondary-foreground: 140 20% 96%;
+  --muted: 145 20% 16%;
+  --muted-foreground: 140 10% 65%;
+  --accent: 145 25% 18%;
+  --accent-foreground: 140 20% 96%;
+  --destructive: 0 62% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 145 20% 22%;
+  --input: 145 20% 22%;
+  --ring: 142 76% 36%;
+  --sidebar: 145 30% 6%;
+  --sidebar-foreground: 140 20% 96%;
 }
 
 @layer base {
   * {
     @apply border-border;
   }
+
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body,
+  .cannacore-app,
+  .cannacore-sidebar,
+  .cannacore-main,
+  .cannacore-panel,
+  .cannacore-kpi-card,
+  .cannacore-kpi-card-row,
+  .cannacore-recent-contacts,
+  .cannacore-campaign-panel,
+  .cannacore-embedded-content,
+  .theme-toggle {
+    transition:
+      background-color 250ms ease,
+      color 250ms ease,
+      border-color 250ms ease,
+      box-shadow 250ms ease;
+  }
+
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply antialiased;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+  }
+}
+
+@layer components {
+  .theme-toggle {
+    background: var(--panel-bg);
+    border-color: var(--border-color);
+    color: var(--text-primary);
+  }
+
+  .theme-toggle:hover {
+    background: var(--hover-bg);
+  }
+
+  .btn-accent-green {
+    background-color: var(--accent-green);
+    color: #ffffff;
+  }
+
+  .btn-accent-green:hover {
+    background-color: var(--accent-green-hover);
   }
 }

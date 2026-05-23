@@ -10,5 +10,6 @@
             "database": "chinook",
             "username": "scottwhitfield"
         }
-    ]
+    ],
+    "git.ignoreLimitWarning": true
 }

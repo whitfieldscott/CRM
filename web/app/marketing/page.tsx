@@ -54,9 +54,9 @@ function pct(n: number, d: number): number {
 }
 
 function deliveryRateClass(rate: number): string {
-  if (rate > 95) return "font-semibold text-emerald-600";
-  if (rate >= 80) return "font-semibold text-amber-600";
-  return "font-semibold text-red-600";
+  if (rate > 95) return "font-semibold text-success";
+  if (rate >= 80) return "font-semibold text-warning";
+  return "font-semibold text-danger";
 }
 
 const PRINT_STYLE = `
@@ -310,7 +310,7 @@ export default function MarketingPage() {
                 setEmailGranularity(v as "day" | "week" | "month")
               }
             >
-              <SelectTrigger className="w-[160px] border-[#2d6e3e]/40">
+              <SelectTrigger className="w-[160px] border-accent-green/40">
                 <SelectValue placeholder="Period" />
               </SelectTrigger>
               <SelectContent>
@@ -323,7 +323,7 @@ export default function MarketingPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
+              className="border-accent-green/40 text-accent-green hover:bg-accent-green/10"
               onClick={() => printEmailReport()}
             >
               Print to PDF
@@ -333,7 +333,7 @@ export default function MarketingPage() {
 
         <div
           id="marketing-email-reports"
-          className="rounded-lg border border-[#2d6e3e]/20 bg-white p-4 shadow-sm"
+          className="rounded-lg border border-accent-green/20 bg-card-bg p-4 shadow-sm"
         >
           <div className="mb-4 hidden print:block">
             <h2 className="text-xl font-bold">Email report · {emailGranularityLabel}</h2>
@@ -344,7 +344,7 @@ export default function MarketingPage() {
           {emailSeriesLoading ? (
             <Skeleton className="h-[320px] w-full" />
           ) : emailSeries?.error ? (
-            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
               {emailSeries.error}
             </p>
           ) : emailChartData.length === 0 ? (
@@ -366,28 +366,28 @@ export default function MarketingPage() {
                   <Line
                     type="monotone"
                     dataKey="Delivered"
-                    stroke="#2d6e3e"
+                    stroke="var(--accent-green)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="Opens"
-                    stroke="#2563eb"
+                    stroke="var(--blue)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="Clicks"
-                    stroke="#ca8a04"
+                    stroke="var(--gold)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="Bounces"
-                    stroke="#dc2626"
+                    stroke="var(--red)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
@@ -404,7 +404,7 @@ export default function MarketingPage() {
           <Button
             variant="outline"
             size="sm"
-            className="w-full border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10 sm:w-auto no-print"
+            className="w-full border-accent-green/40 text-accent-green hover:bg-accent-green/10 sm:w-auto no-print"
             disabled={refreshingSg}
             onClick={() => void refreshSummaries()}
           >
@@ -416,7 +416,7 @@ export default function MarketingPage() {
             Refresh
           </Button>
         </div>
-        <Card className="border-[#2d6e3e]/25 shadow-sm">
+        <Card className="border-accent-green/25 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Email summary</CardTitle>
             <CardDescription>Last 30 days from SendGrid (live)</CardDescription>
@@ -431,45 +431,45 @@ export default function MarketingPage() {
             ) : (
               <>
                 {sendgrid?.error ? (
-                  <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
                     {sendgrid.error}
                   </p>
                 ) : null}
-                <div className="flex flex-wrap gap-3 rounded-lg border border-[#2d6e3e]/15 bg-[#2d6e3e]/5 p-4">
-                  <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                <div className="flex flex-wrap gap-3 rounded-lg border border-accent-green/15 bg-accent-green/5 p-4">
+                  <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Delivered
                     </p>
-                    <p className="text-lg font-bold tabular-nums text-[#2d6e3e]">
+                    <p className="text-lg font-bold tabular-nums text-accent-green">
                       {(sendgrid?.delivered ?? 0).toLocaleString()}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {deliveredPct.toFixed(1)}% of requests
                     </p>
                   </div>
-                  <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Opens
                     </p>
-                    <p className="text-lg font-bold tabular-nums text-[#2d6e3e]">
+                    <p className="text-lg font-bold tabular-nums text-accent-green">
                       {(sendgrid?.opens ?? 0).toLocaleString()}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {openRate.toFixed(1)}% open rate
                     </p>
                   </div>
-                  <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Clicks
                     </p>
-                    <p className="text-lg font-bold tabular-nums text-[#2d6e3e]">
+                    <p className="text-lg font-bold tabular-nums text-accent-green">
                       {(sendgrid?.clicks ?? 0).toLocaleString()}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {clickRate.toFixed(1)}% click rate
                     </p>
                   </div>
-                  <div className="min-w-[120px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-[120px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Bounces
                     </p>
@@ -477,7 +477,7 @@ export default function MarketingPage() {
                       {(sendgrid?.bounces ?? 0).toLocaleString()}
                     </p>
                   </div>
-                  <div className="min-w-[120px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-[120px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Spam reports
                     </p>
@@ -485,7 +485,7 @@ export default function MarketingPage() {
                       {(sendgrid?.spam_reports ?? 0).toLocaleString()}
                     </p>
                   </div>
-                  <div className="min-w-[120px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                  <div className="min-w-[120px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                     <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Unsubscribes
                     </p>
@@ -513,7 +513,7 @@ export default function MarketingPage() {
                 setSmsGranularity(v as "day" | "week" | "month")
               }
             >
-              <SelectTrigger className="w-[160px] border-[#2d6e3e]/40">
+              <SelectTrigger className="w-[160px] border-accent-green/40">
                 <SelectValue placeholder="Period" />
               </SelectTrigger>
               <SelectContent>
@@ -526,7 +526,7 @@ export default function MarketingPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="border-[#2d6e3e]/40 text-[#2d6e3e] hover:bg-[#2d6e3e]/10"
+              className="border-accent-green/40 text-accent-green hover:bg-accent-green/10"
               onClick={() => printTextReport()}
             >
               Print to PDF
@@ -536,7 +536,7 @@ export default function MarketingPage() {
 
         <div
           id="marketing-text-reports"
-          className="rounded-lg border border-[#2d6e3e]/20 bg-white p-4 shadow-sm"
+          className="rounded-lg border border-accent-green/20 bg-card-bg p-4 shadow-sm"
         >
           <div className="mb-4 hidden print:block">
             <h2 className="text-xl font-bold">SMS report · {smsGranularityLabel}</h2>
@@ -547,7 +547,7 @@ export default function MarketingPage() {
           {smsSeriesLoading ? (
             <Skeleton className="h-[320px] w-full" />
           ) : smsSeries?.error ? (
-            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
               {smsSeries.error}
             </p>
           ) : smsChartData.length === 0 ? (
@@ -569,21 +569,21 @@ export default function MarketingPage() {
                   <Line
                     type="monotone"
                     dataKey="SMS Sent"
-                    stroke="#2d6e3e"
+                    stroke="var(--accent-green)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="SMS Failed"
-                    stroke="#dc2626"
+                    stroke="var(--red)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="SMS Skipped"
-                    stroke="#ca8a04"
+                    stroke="var(--gold)"
                     strokeWidth={2}
                     dot={{ r: 2 }}
                   />
@@ -596,7 +596,7 @@ export default function MarketingPage() {
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold tracking-tight">Text summary</h2>
-        <Card className="border-[#2d6e3e]/25 shadow-sm">
+        <Card className="border-accent-green/25 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">SMS campaign totals</CardTitle>
             <CardDescription>Aggregated from all rows in sms_campaign_logs</CardDescription>
@@ -609,16 +609,16 @@ export default function MarketingPage() {
                 ))}
               </div>
             ) : (
-              <div className="flex flex-wrap gap-3 rounded-lg border border-[#2d6e3e]/15 bg-[#2d6e3e]/5 p-4">
-                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+              <div className="flex flex-wrap gap-3 rounded-lg border border-accent-green/15 bg-accent-green/5 p-4">
+                <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Total sent
                   </p>
-                  <p className="text-lg font-bold tabular-nums text-[#2d6e3e]">
+                  <p className="text-lg font-bold tabular-nums text-accent-green">
                     {(smsSummary?.total_sent ?? 0).toLocaleString()}
                   </p>
                 </div>
-                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Total failed
                   </p>
@@ -626,7 +626,7 @@ export default function MarketingPage() {
                     {(smsSummary?.total_failed ?? 0).toLocaleString()}
                   </p>
                 </div>
-                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Total skipped
                   </p>
@@ -634,7 +634,7 @@ export default function MarketingPage() {
                     {(smsSummary?.total_skipped ?? 0).toLocaleString()}
                   </p>
                 </div>
-                <div className="min-w-[140px] flex-1 rounded-md border border-white/60 bg-white px-3 py-2 shadow-sm">
+                <div className="min-w-[140px] flex-1 rounded-md border border-border-theme bg-card-bg px-3 py-2 shadow-sm">
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Delivery rate
                   </p>
@@ -655,7 +655,7 @@ export default function MarketingPage() {
         <h2 className="text-lg font-semibold tracking-tight">
           Bounces &amp; unsubscribes
         </h2>
-        <Card className="border-[#2d6e3e]/20 shadow-sm">
+        <Card className="border-accent-green/20 shadow-sm">
           <CardContent className="pt-6">
             <Tabs defaultValue="bounces">
               <TabsList className="mb-4 grid w-full max-w-md grid-cols-2">
@@ -666,7 +666,7 @@ export default function MarketingPage() {
                 {supLoading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : bounces?.error ? (
-                  <p className="text-sm text-amber-800">{bounces.error}</p>
+                  <p className="text-sm text-warning">{bounces.error}</p>
                 ) : !bounces?.items.length ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No bounces in SendGrid suppression list.
@@ -734,7 +734,7 @@ export default function MarketingPage() {
                 {supLoading ? (
                   <Skeleton className="h-40 w-full" />
                 ) : unsubs?.error ? (
-                  <p className="text-sm text-amber-800">{unsubs.error}</p>
+                  <p className="text-sm text-warning">{unsubs.error}</p>
                 ) : !unsubs?.items.length ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     No global unsubscribes in SendGrid suppression list.

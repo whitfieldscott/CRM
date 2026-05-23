@@ -397,7 +397,7 @@ export default function ClientsPage() {
               Cancel
             </Button>
             <Button
-              className="bg-[#2d6e3e] hover:bg-[#256035]"
+              className="bg-accent-green hover:bg-accent-green-hover"
               disabled={bulkWorking || modalPick.size === 0}
               onClick={() => void addClientsFromModal()}
             >
@@ -447,7 +447,7 @@ export default function ClientsPage() {
             <div className="mt-2 space-y-4">
               <div className="rounded-lg border bg-muted/30 p-4 text-sm">
                 <div className="flex items-center gap-2 font-medium">
-                  <Mail className="h-4 w-4 text-[#2d6e3e]" />
+                  <Mail className="h-4 w-4 text-accent-green" />
                   Contact information
                 </div>
                 <Separator className="my-3" />
@@ -571,7 +571,7 @@ export default function ClientsPage() {
                     />
                     <Button
                       size="sm"
-                      className="bg-[#2d6e3e] hover:bg-[#256035]"
+                      className="bg-accent-green hover:bg-accent-green-hover"
                       onClick={() => void addNote()}
                     >
                       Add note

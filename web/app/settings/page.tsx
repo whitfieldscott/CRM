@@ -118,7 +118,7 @@ export default function SettingsPage() {
             />
           </div>
           <Button
-            className="w-full bg-[#2d6e3e] hover:bg-[#256035]"
+            className="w-full bg-accent-green hover:bg-accent-green-hover"
             disabled={loading || saving}
             onClick={() => void save()}
           >

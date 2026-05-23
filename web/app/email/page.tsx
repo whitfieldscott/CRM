@@ -204,7 +204,7 @@ export default function EmailBlasterPage() {
                 </Button>
               </div>
               {!csvListLoading && csvFiles.length === 0 ? (
-                <p className="text-sm text-amber-600">
+                <p className="text-sm text-warning">
                   No CSV files found in data folder
                 </p>
               ) : null}
@@ -233,7 +233,7 @@ export default function EmailBlasterPage() {
               id="email-test"
               checked={emailTestMode}
               onCheckedChange={setEmailTestMode}
-              className="data-[state=checked]:bg-[#2d6e3e]"
+              className="data-[state=checked]:bg-accent-green"
             />
           </div>
           {emailTestMode ? (
@@ -264,7 +264,7 @@ export default function EmailBlasterPage() {
               {confirmLoading ? "Checking…" : "Confirm list"}
             </Button>
             <Button
-              className="bg-[#2d6e3e] hover:bg-[#256035]"
+              className="bg-accent-green hover:bg-accent-green-hover"
               onClick={() => {
                 if (emailTestMode) {
                   const te = testEmail.trim();
@@ -293,7 +293,7 @@ export default function EmailBlasterPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-full animate-pulse bg-[#2d6e3e]/70" />
+              <div className="h-full w-full animate-pulse bg-accent-green/70" />
             </div>
           </CardContent>
         </Card>
@@ -358,7 +358,7 @@ export default function EmailBlasterPage() {
       )}
 
       {result && (
-        <Card className="border-emerald-200 bg-emerald-50/50">
+        <Card className="border-success/30 bg-success/10">
           <CardHeader>
             <CardTitle>Results</CardTitle>
             <CardDescription>Summary from the API.</CardDescription>
@@ -370,7 +370,7 @@ export default function EmailBlasterPage() {
             <p>
               <strong>Rows in file:</strong> {result.total_in_file}
             </p>
-            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-white p-3 text-xs shadow-inner">
+            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-card-bg p-3 text-xs shadow-inner">
               {JSON.stringify(result.result, null, 2)}
             </pre>
           </CardContent>
@@ -401,7 +401,7 @@ export default function EmailBlasterPage() {
               Cancel
             </Button>
             <Button
-              className="bg-[#2d6e3e] hover:bg-[#256035]"
+              className="bg-accent-green hover:bg-accent-green-hover"
               disabled={sending}
               onClick={() => void runSend()}
             >

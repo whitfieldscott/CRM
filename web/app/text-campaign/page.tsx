@@ -114,13 +114,13 @@ export default function TextCampaignSetupPage() {
       {smsTestMode && (
         <div
           role="status"
-          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm"
+          className="rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-warning shadow-sm"
         >
-          <p className="font-semibold text-amber-950">
+          <p className="font-semibold text-warning">
             Test mode: SMS will only go to the number you enter below
           </p>
           {contacts && !smsTestPhone.trim() && !contacts.test_sms_to_configured ? (
-            <p className="mt-2 text-sm text-amber-900/90">
+            <p className="mt-2 text-sm text-warning/90">
               Enter a test phone (US 10-digit or E.164), or set{" "}
               <code className="text-xs">TEST_SMS_TO</code> in <code className="text-xs">.env</code>{" "}
               as a fallback.
@@ -152,7 +152,7 @@ export default function TextCampaignSetupPage() {
               id="sms-test-mode"
               checked={smsTestMode}
               onCheckedChange={setSmsTestMode}
-              className="data-[state=checked]:bg-[#2d6e3e]"
+              className="data-[state=checked]:bg-accent-green"
             />
           </div>
           {smsTestMode ? (
@@ -213,7 +213,7 @@ export default function TextCampaignSetupPage() {
               {contactsLoading ? "Loading…" : "Load recipients & status"}
             </Button>
             <Button
-              className="bg-[#2d6e3e] hover:bg-[#256035]"
+              className="bg-accent-green hover:bg-accent-green-hover"
               onClick={() => setSendOpen(true)}
               disabled={testSendBlocked}
             >
@@ -225,7 +225,7 @@ export default function TextCampaignSetupPage() {
 
       {contacts && (
         <div className="grid gap-4 md:grid-cols-2">
-          <Card className="border-[#2d6e3e]/25">
+          <Card className="border-accent-green/25">
             <CardHeader>
               <CardTitle className="text-base">Recipients</CardTitle>
               <CardDescription>After normalizing and deduplicating phones.</CardDescription>
@@ -233,7 +233,7 @@ export default function TextCampaignSetupPage() {
             <CardContent className="space-y-2 text-sm">
               <p>
                 <span className="text-muted-foreground">Estimated recipients:</span>{" "}
-                <strong className="text-lg text-[#2d6e3e]">
+                <strong className="text-lg text-accent-green">
                   {contacts.total_valid_phones.toLocaleString()}
                 </strong>
               </p>
@@ -254,14 +254,14 @@ export default function TextCampaignSetupPage() {
               )}
             </CardContent>
           </Card>
-          <Card className="border-[#2d6e3e]/25">
+          <Card className="border-accent-green/25">
             <CardHeader>
               <div className="flex flex-wrap items-center gap-2">
                 <CardTitle className="text-base">Warmup & limits</CardTitle>
                 {contacts.warmup_complete ? (
                   <Badge variant="secondary">Warmup complete</Badge>
                 ) : (
-                  <Badge className="bg-[#2d6e3e] hover:bg-[#256035]">
+                  <Badge className="bg-accent-green hover:bg-accent-green-hover">
                     Day {contacts.warmup_day}
                   </Badge>
                 )}
@@ -311,14 +311,14 @@ export default function TextCampaignSetupPage() {
           </CardHeader>
           <CardContent>
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div className="h-full w-full animate-pulse bg-[#2d6e3e]/70" />
+              <div className="h-full w-full animate-pulse bg-accent-green/70" />
             </div>
           </CardContent>
         </Card>
       )}
 
       {result && (
-        <Card className="border-emerald-200 bg-emerald-50/50">
+        <Card className="border-success/30 bg-success/10">
           <CardHeader>
             <CardTitle>Results</CardTitle>
             <CardDescription>Summary from the API.</CardDescription>
@@ -330,7 +330,7 @@ export default function TextCampaignSetupPage() {
             <p>
               <strong>Unique valid numbers in file:</strong> {result.total_in_file}
             </p>
-            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-white p-3 text-xs shadow-inner">
+            <pre className="mt-2 max-h-48 overflow-auto rounded-md bg-card-bg p-3 text-xs shadow-inner">
               {JSON.stringify(result.result, null, 2)}
             </pre>
           </CardContent>
@@ -363,7 +363,7 @@ export default function TextCampaignSetupPage() {
               Cancel
             </Button>
             <Button
-              className="bg-[#2d6e3e] hover:bg-[#256035]"
+              className="bg-accent-green hover:bg-accent-green-hover"
               disabled={testSendBlocked}
               onClick={() => void runSend()}
             >

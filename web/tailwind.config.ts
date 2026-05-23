@@ -3,10 +3,6 @@ import path from "node:path";
 import type { Config } from "tailwindcss";
 import tailwindcssAnimate from "tailwindcss-animate";
 
-/**
- * Resolve the directory that contains `app/` so Tailwind `content` globs work
- * whether `next dev` is run from `web/` or from the repo root (`.../CRM`).
- */
 function resolveWebRoot(): string {
   const cwd = process.cwd();
   if (fs.existsSync(path.join(cwd, "app"))) {
@@ -69,8 +65,29 @@ const config: Config = {
           DEFAULT: "hsl(var(--sidebar))",
           foreground: "hsl(var(--sidebar-foreground))",
         },
+        "bg-primary": "var(--bg-primary)",
+        "bg-secondary": "var(--bg-secondary)",
+        "bg-card": "var(--bg-card)",
+        "text-primary": "var(--text-primary)",
+        "text-secondary": "var(--text-secondary)",
+        "border-theme": "var(--border-color)",
+        "accent-green": "var(--accent-green)",
+        "accent-green-hover": "var(--accent-green-hover)",
+        "accent-green-bright": "var(--accent-green-bright)",
+        "sidebar-bg": "var(--sidebar-bg)",
+        "card-bg": "var(--card-bg)",
+        "header-bg": "var(--header-bg)",
         brand: {
-          green: "#2d6e3e",
+          green: "var(--accent-green)",
+        },
+        success: "var(--success)",
+        warning: "var(--warning)",
+        danger: "var(--danger)",
+        chart: {
+          green: "var(--accent-green)",
+          blue: "var(--blue)",
+          amber: "var(--gold)",
+          red: "var(--red)",
         },
       },
       borderRadius: {
