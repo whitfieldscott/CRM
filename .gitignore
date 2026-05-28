@@ -35,7 +35,9 @@ backend/__pycache__/
 
 # SQLite
 *.db-journal
+backend/*.db-journal
 backend/app.db
+backend/cannacore.db
 backend/*.db
 
 # Sensitive data files
