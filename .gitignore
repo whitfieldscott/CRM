@@ -53,3 +53,6 @@ sms_send_tracking.json
 *.pyc
 __pycache__/
 backend/__pycache__/
+
+# Generated data reports
+data/reports/
