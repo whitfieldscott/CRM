@@ -108,6 +108,12 @@ class RawOmmaLicense(Base):
     email_raw = Column(String(320), nullable=True)
     email_normalized = Column(String(320), nullable=True, index=True)
     raw_json = Column(Text, nullable=True)
+    # Phase D normalization (see upgrade_cannacore_phase_d_schema.py on existing DBs)
+    license_validation_status = Column(String(32), nullable=True, index=True)
+    email_validation_status = Column(String(32), nullable=True)
+    duplicate_classification = Column(String(48), nullable=True, index=True)
+    normalization_status = Column(String(32), nullable=True, index=True)
+    normalized_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     source_file = relationship("SourceFile", back_populates="omma_rows")
@@ -173,6 +179,12 @@ class RawMetrcLicense(Base):
     phone_raw = Column(String(64), nullable=True)
     phone_normalized = Column(String(32), nullable=True, index=True)
     raw_json = Column(Text, nullable=True)
+    # Phase D normalization
+    license_validation_status = Column(String(32), nullable=True, index=True)
+    phone_validation_status = Column(String(32), nullable=True)
+    duplicate_classification = Column(String(48), nullable=True, index=True)
+    normalization_status = Column(String(32), nullable=True, index=True)
+    normalized_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     source_file = relationship("SourceFile", back_populates="metrc_rows")
