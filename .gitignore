@@ -33,6 +33,11 @@ backend/__pycache__/
 **/__pycache__/
 *.pyc
 
+# SQLite
+*.db-journal
+backend/app.db
+backend/*.db
+
 # Sensitive data files
 data/*.csv
 data/*.xlsx
@@ -44,3 +49,7 @@ data/templates/
 *.csv
 send_tracking.json
 sms_send_tracking.json
+# Python cache
+*.pyc
+__pycache__/
+backend/__pycache__/

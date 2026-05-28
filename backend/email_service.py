@@ -11,6 +11,7 @@ SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
 FROM_EMAIL = os.getenv("FROM_EMAIL", "admin@arkonesystems.com")
 TEMPLATE_ID = os.getenv("SENDGRID_TEMPLATE_ID")
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
+BUSINESS_ADDRESS = (os.getenv("BUSINESS_ADDRESS") or "").strip()
 
 
 def send_email(
@@ -44,6 +45,9 @@ def send_email(
             html = html.replace("{{unsubscribe_url}}", unsubscribe_url)
             html = html.replace("{{UNSUBSCRIBE_URL}}", unsubscribe_url)
             html = html.replace("{{{unsubscribe_url}}}", unsubscribe_url)
+            if BUSINESS_ADDRESS:
+                html = html.replace("{{business_address}}", BUSINESS_ADDRESS)
+                html = html.replace("{{BUSINESS_ADDRESS}}", BUSINESS_ADDRESS)
 
             if not subject or not subject.strip():
                 subject = "Rooted Dominion — Clone Availability"

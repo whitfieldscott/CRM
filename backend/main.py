@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
@@ -11,6 +12,7 @@ import pandas as pd
 import requests
 from pydantic import BaseModel, ConfigDict
 from csv_sender import send_bulk_emails
+from data_paths import resolve_data_csv_path, safe_data_csv_file_name
 from sms_sender import send_bulk_sms
 from sms_service import TEST_SMS_TO, normalize_us_e164, twilio_configured
 from database import SessionLocal, engine, Base
@@ -78,9 +80,19 @@ from sqlalchemy.orm import Session
 
 app = FastAPI(title="Rooted Dominion CRM API")
 
+# Local dev origins. Production: CORS_ALLOW_ORIGINS=https://app.arkonesystems.com
+_cors_env = (os.getenv("CORS_ALLOW_ORIGINS") or "").strip()
+if _cors_env:
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    _cors_origins = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -385,12 +397,11 @@ def _find_managed_template_entry(data: dict, template_id: str) -> Optional[dict]
 
 
 def _safe_data_csv_file_name(name: str) -> str:
-    n = (name or "").strip()
-    if not n:
-        raise HTTPException(status_code=400, detail="file_name is required")
-    if ".." in n or "/" in n or "\\" in n:
-        raise HTTPException(status_code=400, detail="Invalid file_name")
-    return n
+    return safe_data_csv_file_name(name)
+
+
+def _data_csv_path(file_name: str) -> str:
+    return str(resolve_data_csv_path(file_name))
 
 
 # Map normalized tabular import headers -> canonical column (name, business, phone, email)
@@ -662,6 +673,7 @@ def list_data_csv_files():
 #         raise HTTPException(status_code=e.status_code, detail=e.detail) from e
 
 
+# Phase 1 TODO: Depends(require_admin_api_key) on get_settings, update_settings
 @app.get("/settings", response_model=SettingsResponse)
 def get_settings():
     return SettingsResponse(
@@ -690,6 +702,7 @@ def test_email():
 BULK_EMAIL_SUBJECT = "Available Clones — Rooted Dominion | Rooted & Ready $5 Each"
 
 
+# Phase 1 TODO: Depends(require_admin_api_key)
 @app.post("/send-bulk")
 def send_bulk(
     file_name: str,
@@ -697,14 +710,15 @@ def send_bulk(
     test_email: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
-    file_path = f"../data/{file_name}"
+    safe_name = _safe_data_csv_file_name(file_name)
+    file_path = _data_csv_path(safe_name)
 
     df = load_and_clean_csv(file_path)
 
-    name = campaign_name or f"Bulk: {file_name}"
+    name = campaign_name or f"Bulk: {safe_name}"
     campaign = CampaignLog(
         campaign_name=name,
-        file_used=file_name,
+        file_used=safe_name,
         total_sent=0,
         total_failed=0,
         total_skipped=0,
@@ -717,7 +731,7 @@ def send_bulk(
     try:
         result = send_bulk_emails(
             df,
-            file_name=file_name,
+            file_name=safe_name,
             db=db,
             campaign_log_id=campaign.id,
             email_subject=BULK_EMAIL_SUBJECT,
@@ -743,7 +757,7 @@ def send_bulk(
 
 @app.get("/preview-csv")
 def preview_csv(file_name: str):
-    file_path = f"../data/{file_name}"
+    file_path = _data_csv_path(file_name)
     df = load_and_clean_csv(file_path)
     preview_data = df.head(5).to_dict(orient="records")
     return {
@@ -755,10 +769,11 @@ def preview_csv(file_name: str):
 
 @app.get("/confirm-send")
 def confirm_send(file_name: str):
-    file_path = f"../data/{file_name}"
+    safe_name = _safe_data_csv_file_name(file_name)
+    file_path = _data_csv_path(safe_name)
     df = load_and_clean_csv(file_path)
     return {
-        "file_name": file_name,
+        "file_name": safe_name,
         "total_valid_emails": len(df),
         "sample_emails": df["email"].head(5).tolist(),
         "ready_to_send": True,
@@ -813,7 +828,7 @@ def _sms_contacts_dataframe(file_path: str) -> tuple[pd.DataFrame, dict]:
 def get_sms_contacts(file_name: str):
     """Valid phone numbers from a CSV in /data (same list as email blaster)."""
     safe = _safe_data_csv_file_name(file_name)
-    path = f"../data/{safe}"
+    path = _data_csv_path(safe)
     warmup = _sms_warmup_meta()
     try:
         df_valid, meta = _sms_contacts_dataframe(path)
@@ -863,7 +878,7 @@ def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
             )
 
     safe = _safe_data_csv_file_name(payload.file_name)
-    path = f"../data/{safe}"
+    path = _data_csv_path(safe)
     try:
         df, meta = _sms_contacts_dataframe(path)
     except HTTPException:
@@ -876,6 +891,7 @@ def send_sms_campaign(payload: SmsSendBody, db: Session = Depends(get_db)):
             status_code=400, detail="No contacts with valid phone numbers in this file.",
         )
 
+    # Phase 1 TODO: Depends(require_admin_api_key)
     name = (payload.campaign_name or "").strip() or f"SMS: {safe}"
     log = SmsCampaignLog(
         campaign_name=name,
@@ -1486,6 +1502,7 @@ def delete_managed_email_template(template_id: str):
     return {"success": True}
 
 
+# Phase 1 TODO: Depends(require_admin_api_key)
 @app.post("/campaigns/send")
 def send_campaign_with_template(
     payload: CampaignSendRequest, db: Session = Depends(get_db)
@@ -1497,7 +1514,7 @@ def send_campaign_with_template(
     hc = (payload.html_content or "").strip()
     template_html = payload.html_content if hc else read_email_template_string()
     safe_name = _safe_data_csv_file_name(payload.file_name)
-    file_path = f"../data/{safe_name}"
+    file_path = _data_csv_path(safe_name)
     df = load_and_clean_csv(file_path)
 
     name = payload.campaign_name.strip()
@@ -1631,6 +1648,7 @@ def get_unsubscribes(db: Session = Depends(get_db)):
     }
 
 
+# Phase 1 TODO: Depends(require_admin_api_key)
 @app.delete("/unsubscribe")
 def remove_unsubscribe(email: str, db: Session = Depends(get_db)):
     record = db.query(Unsubscribe).filter(
