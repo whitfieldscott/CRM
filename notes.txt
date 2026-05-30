@@ -1,10 +1,10 @@
 to enable for usage: source ../.venv/bin/activate
 
-Terminal 1:
+Terminal 1: - FRONTEND
+cd ~/Desktop/CRM/web
+npm run dev
+
+Terminal 2: - BACKEND
 cd ~/Desktop/CRM/backend
 source ../.venv/bin/activate
 uvicorn main:app --reload
-
-Terminal 2:
-cd ~/CRM/web
-npm run dev
