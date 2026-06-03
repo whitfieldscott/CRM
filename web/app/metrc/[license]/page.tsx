@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { api, getApiErrorMessage } from "@/lib/api";
-import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Card,
   CardContent,
@@ -11,17 +10,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { toast } from "sonner";
-
-type MetrcFacility = {
-  DisplayName?: string | null;
-  Name?: string | null;
-  License?: {
-    Number?: string | null;
-    LicenseType?: string | null;
-  } | null;
-};
+import { Button } from "@/components/ui/button";
+import { useMetrcFacility } from "@/components/metrc/metrc-facility-context";
+import { MasterDataPanel } from "@/components/metrc/master-data-panel";
+import { setStoredMetrcLicense } from "@/lib/metrc-storage";
 
 export default function MetrcLicenseDashboardPage() {
   const params = useParams();
@@ -32,54 +24,27 @@ export default function MetrcLicenseDashboardPage() {
     return "";
   }, [raw]);
 
-  const [facility, setFacility] = useState<MetrcFacility | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { facilities, loading, sandbox, baseUrlHost } = useMetrcFacility();
 
-  const load = useCallback(async () => {
-    if (!licenseNumber) {
-      setFacility(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const { data } = await api.get<MetrcFacility[]>("/metrc/licenses");
-      const list = Array.isArray(data) ? data : [];
-      const match = list.find(
-        (f) => (f.License?.Number ?? "").trim() === licenseNumber.trim(),
-      );
-      setFacility(match ?? null);
-      if (!match) {
-        toast.error("No facility found for this license number.");
-      }
-    } catch (e) {
-      toast.error(getApiErrorMessage(e));
-      setFacility(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [licenseNumber]);
+  const facility = useMemo(
+    () => facilities.find((f) => f.license_number === licenseNumber) ?? null,
+    [facilities, licenseNumber],
+  );
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (licenseNumber) setStoredMetrcLicense(licenseNumber);
+  }, [licenseNumber]);
 
-  const displayName = useMemo(() => {
-    if (!facility) return "";
-    return (
-      facility.DisplayName?.trim() ||
-      facility.Name?.trim() ||
-      facility.License?.Number?.trim() ||
-      licenseNumber
-    );
-  }, [facility, licenseNumber]);
-
-  const licenseType = facility?.License?.LicenseType?.trim() ?? "—";
+  const displayName =
+    facility?.display_name?.trim() ||
+    facility?.facility_name?.trim() ||
+    licenseNumber ||
+    "Facility";
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8">
+    <div className="mx-auto max-w-6xl space-y-8">
       <div>
-        {loading ? (
+        {loading && !facility ? (
           <div className="space-y-2">
             <Skeleton className="h-9 w-2/3 max-w-md" />
             <Skeleton className="h-5 w-48" />
@@ -89,12 +54,18 @@ export default function MetrcLicenseDashboardPage() {
           <>
             <h1 className="text-2xl font-bold tracking-tight">{displayName}</h1>
             <p className="text-muted-foreground">
-              <span className="font-medium text-foreground">License number:</span>{" "}
+              <span className="font-medium text-foreground">License:</span>{" "}
               <span className="font-mono text-sm">{licenseNumber || "—"}</span>
             </p>
             <p className="text-muted-foreground">
               <span className="font-medium text-foreground">License type:</span>{" "}
-              {licenseType}
+              {facility?.license_type ?? "—"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Metrc {sandbox ? "sandbox" : "production"} · {baseUrlHost}
+              {facility?.synced_at
+                ? ` · facilities synced ${new Date(facility.synced_at).toLocaleString()}`
+                : ""}
             </p>
           </>
         )}
@@ -103,7 +74,7 @@ export default function MetrcLicenseDashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>Quick actions</CardTitle>
-          <CardDescription>Placeholder navigation for this license.</CardDescription>
+          <CardDescription>Operational modules coming in Phase 2.3+.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-3">
           <Button type="button" variant="outline" disabled>
@@ -113,13 +84,15 @@ export default function MetrcLicenseDashboardPage() {
             Transfers
           </Button>
           <Button type="button" variant="outline" disabled>
-            Invoices
+            Plants
           </Button>
           <Button type="button" variant="outline" disabled>
-            Log
+            Compliance log
           </Button>
         </CardContent>
       </Card>
+
+      {licenseNumber ? <MasterDataPanel license={licenseNumber} /> : null}
     </div>
   );
 }
