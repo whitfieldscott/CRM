@@ -6,7 +6,7 @@ Separate from raw_metrc_licenses (Excel import registry).
 
 from datetime import datetime
 
-from sqlalchemy import Column, Date, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, String, Text, UniqueConstraint
 
 from cannacore_database import Base
 
@@ -25,6 +25,75 @@ class MetrcFacility(Base):
     license_type = Column(String(128), nullable=True)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
+    raw_json = Column(Text, nullable=True)
+    synced_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+class MetrcLocation(Base):
+    __tablename__ = "metrc_locations"
+    __table_args__ = (
+        UniqueConstraint(
+            "license_number",
+            "metrc_id",
+            name="uq_metrc_locations_license_metrc_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    metrc_id = Column(Integer, nullable=False, index=True)
+    license_number = Column(String(64), nullable=False, index=True)
+    name = Column(String(512), nullable=True)
+    location_type_id = Column(Integer, nullable=True)
+    location_type_name = Column(String(128), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    raw_json = Column(Text, nullable=True)
+    synced_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+class MetrcStrain(Base):
+    __tablename__ = "metrc_strains"
+    __table_args__ = (
+        UniqueConstraint(
+            "license_number",
+            "metrc_id",
+            name="uq_metrc_strains_license_metrc_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    metrc_id = Column(Integer, nullable=False, index=True)
+    license_number = Column(String(64), nullable=False, index=True)
+    name = Column(String(512), nullable=True)
+    testing_status = Column(String(64), nullable=True)
+    thc_level = Column(Float, nullable=True)
+    cbd_level = Column(Float, nullable=True)
+    indica_percentage = Column(Float, nullable=True)
+    sativa_percentage = Column(Float, nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    raw_json = Column(Text, nullable=True)
+    synced_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+
+class MetrcItem(Base):
+    __tablename__ = "metrc_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "license_number",
+            "metrc_id",
+            name="uq_metrc_items_license_metrc_id",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    metrc_id = Column(Integer, nullable=False, index=True)
+    license_number = Column(String(64), nullable=False, index=True)
+    name = Column(String(512), nullable=True)
+    product_category_name = Column(String(256), nullable=True)
+    product_category_type = Column(String(128), nullable=True)
+    quantity_type = Column(String(64), nullable=True)
+    unit_of_measure_name = Column(String(64), nullable=True)
+    default_lab_testing_state = Column(String(64), nullable=True)
+    is_active = Column(Boolean, nullable=False, default=True)
     raw_json = Column(Text, nullable=True)
     synced_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
