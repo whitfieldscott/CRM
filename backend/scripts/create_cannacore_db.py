@@ -19,6 +19,7 @@ if str(BACKEND_DIR) not in sys.path:
 
 from cannacore_database import CANNACORE_DB_PATH, engine  # noqa: E402
 from cannacore_models import Base  # noqa: E402,F401 — registers all models
+import metrc_models  # noqa: E402,F401 — metrc_facilities, metrc_api_request_logs
 
 
 def main() -> int:

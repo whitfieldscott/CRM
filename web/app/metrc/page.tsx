@@ -10,8 +10,8 @@ export default function MetrcIndexPage() {
       </p>
       <p className="text-sm text-muted-foreground">
         Licenses are loaded from the API when the app shell loads; if the list is empty, check{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">METRC_USER_KEY</code> in{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code>.
+        Metrc credentials in{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-xs">.env</code> (backend only).
       </p>
       <p className="text-sm">
         <Link href="/" className="font-medium text-primary underline-offset-4 hover:underline">

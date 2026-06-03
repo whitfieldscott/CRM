@@ -68,13 +68,7 @@ from schemas import (
     SmsSendBody,
 )
 from settings_store import get_test_mode, set_test_mode
-# from metrc_service import (
-#     MetrcError,
-#     active_packages,
-#     list_licenses,
-#     plants_for_license,
-#     transfers_incoming_outgoing,
-# )
+from routers.metrc_router import router as metrc_router
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
@@ -97,6 +91,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(metrc_router)
 
 
 class CampaignDetailEmailSend(BaseModel):
