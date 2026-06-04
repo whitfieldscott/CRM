@@ -161,7 +161,7 @@
 | Strains display in frontend | ✅ Tab + sync |
 | Items display in frontend | ✅ Tab + sync |
 | Sandbox test data exists | ✅ 10/10/10 on default grower license |
-| GitHub updated | ⏳ Commit pushed (see git log) |
+| GitHub updated | ✅ `a4d6e4c` pushed to `origin/main` |
 | Phase 2.2 Engineering Report | ✅ This document |
 
 **Phase 2.2 complete when:** GitHub push confirmed + workbook screenshots submitted to Metrc.
