@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -52,6 +54,7 @@ import { toast } from "sonner";
 type NewLicensedTransferModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  license: string;
 };
 
 type ActiveLookup =
@@ -62,12 +65,34 @@ type ActiveLookup =
   | "package"
   | null;
 
+function SlotRemoveButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+      aria-label={label}
+      onClick={onClick}
+    >
+      <X className="h-3.5 w-3.5" />
+    </Button>
+  );
+}
+
 export function NewLicensedTransferModal({
   open,
   onOpenChange,
+  license,
 }: NewLicensedTransferModalProps) {
-  const [draft, setDraft] = useState<LicensedTransferDraft>(
-    blankLicensedTransferDraft(),
+  const [draft, setDraft] = useState<LicensedTransferDraft>(() =>
+    blankLicensedTransferDraft(license),
   );
   const [validationError, setValidationError] = useState<string | null>(null);
   const [activeLookup, setActiveLookup] = useState<ActiveLookup>(null);
@@ -76,11 +101,11 @@ export function NewLicensedTransferModal({
 
   useEffect(() => {
     if (!open) return;
-    setDraft(blankLicensedTransferDraft());
+    setDraft(blankLicensedTransferDraft(license));
     setValidationError(null);
     setActiveLookup(null);
     setLookupSlotId(null);
-  }, [open]);
+  }, [open, license]);
 
   const updateDraft = (patch: Partial<LicensedTransferDraft>) => {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -97,9 +122,58 @@ export function NewLicensedTransferModal({
     setActiveLookup("vehicle");
   };
 
+  const openDriverLookup = (slotId: string) => {
+    setLookupSlotId(slotId);
+    setActiveLookup("driver");
+  };
+
   const openPackageLookup = (slotId: string) => {
     setLookupSlotId(slotId);
     setActiveLookup("package");
+  };
+
+  const removeTransporterSlot = (slotId: string) => {
+    setDraft((prev) => {
+      if (prev.transporters.length <= 1) return prev;
+      return {
+        ...prev,
+        transporters: prev.transporters.filter((slot) => slot.id !== slotId),
+      };
+    });
+    setValidationError(null);
+  };
+
+  const removeDriverSlot = (slotId: string) => {
+    setDraft((prev) => {
+      if (prev.drivers.length <= 1) return prev;
+      return {
+        ...prev,
+        drivers: prev.drivers.filter((slot) => slot.id !== slotId),
+      };
+    });
+    setValidationError(null);
+  };
+
+  const removeVehicleSlot = (slotId: string) => {
+    setDraft((prev) => {
+      if (prev.vehicles.length <= 1) return prev;
+      return {
+        ...prev,
+        vehicles: prev.vehicles.filter((slot) => slot.id !== slotId),
+      };
+    });
+    setValidationError(null);
+  };
+
+  const removePackageSlot = (slotId: string) => {
+    setDraft((prev) => {
+      if (prev.packages.length <= 1) return prev;
+      return {
+        ...prev,
+        packages: prev.packages.filter((slot) => slot.id !== slotId),
+      };
+    });
+    setValidationError(null);
   };
 
   const addTransporterSlot = () => {
@@ -112,6 +186,22 @@ export function NewLicensedTransferModal({
           transporterLicense: "",
           businessName: "",
           phone: "",
+        },
+      ],
+    });
+  };
+
+  const addDriverSlot = () => {
+    updateDraft({
+      drivers: [
+        ...draft.drivers,
+        {
+          id: createSlotId("driver"),
+          driverId: "",
+          driverName: "",
+          employeeId: "",
+          driverLicenseNumber: "",
+          phoneNumber: "",
         },
       ],
     });
@@ -304,6 +394,26 @@ export function NewLicensedTransferModal({
                   }
                 />
               </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="planned-route">Planned Route</Label>
+                <Textarea
+                  id="planned-route"
+                  value={draft.plannedRoute}
+                  onChange={(e) => {
+                    const plannedRoute = e.target.value;
+                    updateDraft({
+                      plannedRoute,
+                      manifest: {
+                        ...draft.manifest,
+                        plannedRoute,
+                      },
+                    });
+                  }}
+                  rows={4}
+                  placeholder="Paste planned route or driving directions from departing facility to destination."
+                />
+              </div>
             </section>
 
             <section className="space-y-3 border-t pt-4">
@@ -318,19 +428,22 @@ export function NewLicensedTransferModal({
                   Add Transporter
                 </Button>
               </div>
-              {draft.transporters.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Transporter #1 — use Add Transporter to begin.
-                </p>
-              ) : null}
               {draft.transporters.map((transporter, index) => (
                 <div
                   key={transporter.id}
                   className="grid gap-3 rounded-md border p-3 sm:grid-cols-2"
                 >
-                  <p className="text-sm font-medium sm:col-span-2">
-                    Transporter #{index + 1}
-                  </p>
+                  <div className="flex items-start justify-between sm:col-span-2">
+                    <p className="text-sm font-medium">
+                      Transporter #{index + 1}
+                    </p>
+                    {draft.transporters.length > 1 ? (
+                      <SlotRemoveButton
+                        label="Remove Transporter"
+                        onClick={() => removeTransporterSlot(transporter.id)}
+                      />
+                    ) : null}
+                  </div>
                   <LookupField
                     id={`transporter-${transporter.id}`}
                     label="Transporter"
@@ -353,41 +466,66 @@ export function NewLicensedTransferModal({
             </section>
 
             <section className="space-y-3 border-t pt-4">
-              <h3 className="text-sm font-semibold">Driver</h3>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <LookupField
-                  id="transfer-driver"
-                  label="Driver"
-                  value={draft.driver?.driverName ?? ""}
-                  onLookupClick={() => setActiveLookup("driver")}
-                  placeholder="Select from Admin → Drivers"
-                  required
-                />
-                <div className="space-y-2">
-                  <Label>Employee ID</Label>
-                  <Input
-                    readOnly
-                    className="bg-muted"
-                    value={draft.driver?.employeeId ?? ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Driver License Number</Label>
-                  <Input
-                    readOnly
-                    className="bg-muted"
-                    value={draft.driver?.driverLicenseNumber ?? ""}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Phone Number</Label>
-                  <Input
-                    readOnly
-                    className="bg-muted"
-                    value={draft.driver?.phoneNumber ?? ""}
-                  />
-                </div>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">Drivers</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={addDriverSlot}
+                >
+                  Add Driver
+                </Button>
               </div>
+              {draft.drivers.map((driver, index) => (
+                <div
+                  key={driver.id}
+                  className="grid gap-3 rounded-md border p-3 sm:grid-cols-2"
+                >
+                  <div className="flex items-start justify-between sm:col-span-2">
+                    <p className="text-sm font-medium">Driver #{index + 1}</p>
+                    {draft.drivers.length > 1 ? (
+                      <SlotRemoveButton
+                        label="Remove Driver"
+                        onClick={() => removeDriverSlot(driver.id)}
+                      />
+                    ) : null}
+                  </div>
+                  <LookupField
+                    id={`driver-${driver.id}`}
+                    label="Driver"
+                    value={driver.driverName}
+                    onLookupClick={() => openDriverLookup(driver.id)}
+                    placeholder="Select from Admin → Drivers"
+                    required
+                  />
+                  <div className="space-y-2">
+                    <Label>Employee ID</Label>
+                    <Input
+                      readOnly
+                      className="bg-muted"
+                      value={driver.employeeId}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Driver License Number</Label>
+                    <Input
+                      readOnly
+                      className="bg-muted"
+                      value={driver.driverLicenseNumber}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Phone Number</Label>
+                    <Input
+                      readOnly
+                      className="bg-muted"
+                      value={driver.phoneNumber}
+                      placeholder="Populated from lookup"
+                    />
+                  </div>
+                </div>
+              ))}
             </section>
 
             <section className="space-y-3 border-t pt-4">
@@ -402,19 +540,20 @@ export function NewLicensedTransferModal({
                   Add Vehicle
                 </Button>
               </div>
-              {draft.vehicles.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Vehicle #1 — use Add Vehicle to begin.
-                </p>
-              ) : null}
               {draft.vehicles.map((vehicle, index) => (
                 <div
                   key={vehicle.id}
                   className="grid gap-3 rounded-md border p-3 sm:grid-cols-2"
                 >
-                  <p className="text-sm font-medium sm:col-span-2">
-                    Vehicle #{index + 1}
-                  </p>
+                  <div className="flex items-start justify-between sm:col-span-2">
+                    <p className="text-sm font-medium">Vehicle #{index + 1}</p>
+                    {draft.vehicles.length > 1 ? (
+                      <SlotRemoveButton
+                        label="Remove Vehicle"
+                        onClick={() => removeVehicleSlot(vehicle.id)}
+                      />
+                    ) : null}
+                  </div>
                   <LookupField
                     id={`vehicle-${vehicle.id}`}
                     label="Vehicle"
@@ -447,19 +586,20 @@ export function NewLicensedTransferModal({
                   Add Package
                 </Button>
               </div>
-              {draft.packages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Package #1 — use Add Package to select inventory packages.
-                </p>
-              ) : null}
               {draft.packages.map((pkg, index) => (
                 <div
                   key={pkg.id}
                   className="grid gap-3 rounded-md border p-3 sm:grid-cols-2"
                 >
-                  <p className="text-sm font-medium sm:col-span-2">
-                    Package #{index + 1}
-                  </p>
+                  <div className="flex items-start justify-between sm:col-span-2">
+                    <p className="text-sm font-medium">Package #{index + 1}</p>
+                    {draft.packages.length > 1 ? (
+                      <SlotRemoveButton
+                        label="Remove Package"
+                        onClick={() => removePackageSlot(pkg.id)}
+                      />
+                    ) : null}
+                  </div>
                   <LookupField
                     id={`package-${pkg.id}`}
                     label="Package"
@@ -536,8 +676,17 @@ export function NewLicensedTransferModal({
         open={activeLookup === "driver"}
         onOpenChange={(isOpen) => !isOpen && setActiveLookup(null)}
         onSelect={(record: DriverRecord) => {
-          updateDraft({ driver: driverFromRecord(record) });
+          if (!lookupSlotId) return;
+          setDraft((prev) => ({
+            ...prev,
+            drivers: prev.drivers.map((slot) =>
+              slot.id === lookupSlotId
+                ? driverFromRecord(record, slot.id)
+                : slot,
+            ),
+          }));
           setActiveLookup(null);
+          setLookupSlotId(null);
         }}
       />
 

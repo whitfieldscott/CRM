@@ -8,5 +8,5 @@ export default function MetrcLicensedTransfersPage() {
 
   if (!license) return null;
 
-  return <LicensedTransfersPage />;
+  return <LicensedTransfersPage license={license} />;
 }

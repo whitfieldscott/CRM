@@ -25,8 +25,62 @@ const BLANK_INVOICE_LINE: TransferInvoiceLine = {
   notes: "",
 };
 
-export function blankLicensedTransferDraft(): LicensedTransferDraft {
-  const invoiceNumber = generateInvoiceNumber();
+export function createSlotId(prefix: string): string {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${id}`;
+}
+
+function blankTransporterSlot(): TransferTransporter {
+  return {
+    id: createSlotId("transporter"),
+    transporterId: "",
+    transporterLicense: "",
+    businessName: "",
+    phone: "",
+  };
+}
+
+function blankDriverSlot(): TransferDriver {
+  return {
+    id: createSlotId("driver"),
+    driverId: "",
+    driverName: "",
+    employeeId: "",
+    driverLicenseNumber: "",
+    phoneNumber: "",
+  };
+}
+
+function blankVehicleSlot(): TransferVehicle {
+  return {
+    id: createSlotId("vehicle"),
+    vehicleId: "",
+    vehicleName: "",
+    vehicleMake: "",
+    vehicleModel: "",
+    licensePlate: "",
+    registrationNumber: "",
+    vin: "",
+    notes: "",
+  };
+}
+
+function blankPackageSlot(): TransferPackage {
+  return {
+    id: createSlotId("package"),
+    packageId: "",
+    packageTag: "",
+    itemName: "",
+    currentQuantity: "",
+    location: "",
+  };
+}
+
+export function blankLicensedTransferDraft(license: string): LicensedTransferDraft {
+  const invoiceNumber = generateInvoiceNumber(license);
   return {
     destination: null,
     transferType: "",
@@ -35,12 +89,17 @@ export function blankLicensedTransferDraft(): LicensedTransferDraft {
     estimatedDepartureTime: "",
     estimatedArrivalDate: "",
     estimatedArrivalTime: "",
-    transporters: [],
-    driver: null,
-    vehicles: [],
-    packages: [],
+    plannedRoute: "",
+    transporters: [blankTransporterSlot()],
+    drivers: [blankDriverSlot()],
+    vehicles: [blankVehicleSlot()],
+    packages: [blankPackageSlot()],
     invoice: buildTransferInvoice(invoiceNumber, { ...BLANK_INVOICE_LINE }),
-    manifest: { manifestId: null, manifestNumber: null },
+    manifest: {
+      manifestId: null,
+      manifestNumber: null,
+      plannedRoute: "",
+    },
   };
 }
 
@@ -68,8 +127,12 @@ export function transporterFromRecord(
   };
 }
 
-export function driverFromRecord(record: DriverRecord): TransferDriver {
+export function driverFromRecord(
+  record: DriverRecord,
+  slotId: string,
+): TransferDriver {
   return {
+    id: slotId,
     driverId: record.id,
     driverName: record.driverName,
     employeeId: record.employeeId,
@@ -109,14 +172,6 @@ export function packageFromRecord(
   };
 }
 
-export function createSlotId(prefix: string): string {
-  const id =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  return `${prefix}-${id}`;
-}
-
 export function validateLicensedTransferDraft(
   draft: LicensedTransferDraft,
 ): string | null {
@@ -131,7 +186,10 @@ export function validateLicensedTransferDraft(
   if (draft.transporters.length === 0) {
     return "Add at least one transporter.";
   }
-  if (!draft.driver) return "Select a driver.";
+  if (draft.drivers.length === 0) return "Add at least one driver.";
+  if (!draft.drivers.some((driver) => driver.driverId)) {
+    return "Select a driver.";
+  }
   if (draft.vehicles.length === 0) return "Add at least one vehicle.";
   if (draft.packages.length === 0) {
     return "Add at least one package from inventory.";

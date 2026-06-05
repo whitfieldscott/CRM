@@ -25,7 +25,7 @@ export const GROWER_SUB_NAV: GrowerSubNavItem[] = [
   { id: "overview", label: "Overview", segment: "", enabled: true },
   { id: "plants", label: "Plants", segment: "plants", enabled: false },
   { id: "harvests", label: "Harvests", segment: "harvests", enabled: false },
-  { id: "packages", label: "Packages", segment: "packages", enabled: false },
+  { id: "packages", label: "Packages", segment: "packages", enabled: true },
   { id: "transfers", label: "Transfers", segment: "transfers/licensed", enabled: true },
   { id: "locations", label: "Locations", segment: "locations", enabled: true },
   { id: "strains", label: "Strains", segment: "strains", enabled: true },

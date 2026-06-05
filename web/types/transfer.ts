@@ -24,6 +24,7 @@ export type TransferTransporter = {
 };
 
 export type TransferDriver = {
+  id: string;
   driverId: string;
   driverName: string;
   employeeId: string;
@@ -72,6 +73,8 @@ export type TransferInvoice = {
 export type TransferManifest = {
   manifestId: string | null;
   manifestNumber: string | null;
+  /** Driving directions / route notes for manifest delivery. */
+  plannedRoute: string;
 };
 
 /** Licensed transfer draft — UI state until backend pipeline is connected. */
@@ -83,8 +86,10 @@ export type LicensedTransferDraft = {
   estimatedDepartureTime: string;
   estimatedArrivalDate: string;
   estimatedArrivalTime: string;
+  /** Optional route notes from departure facility to destination. */
+  plannedRoute: string;
   transporters: TransferTransporter[];
-  driver: TransferDriver | null;
+  drivers: TransferDriver[];
   vehicles: TransferVehicle[];
   packages: TransferPackage[];
   invoice: TransferInvoice;

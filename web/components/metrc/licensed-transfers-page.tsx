@@ -18,7 +18,7 @@ const NewLicensedTransferModal = dynamic(
   { ssr: false, loading: () => null },
 );
 
-export function LicensedTransfersPage() {
+export function LicensedTransfersPage({ license }: { license: string }) {
   const [newTransferOpen, setNewTransferOpen] = useState(false);
   const config = getTransferMenuItem("licensed");
 
@@ -50,6 +50,7 @@ export function LicensedTransfersPage() {
         <NewLicensedTransferModal
           open={newTransferOpen}
           onOpenChange={setNewTransferOpen}
+          license={license}
         />
       ) : null}
     </>

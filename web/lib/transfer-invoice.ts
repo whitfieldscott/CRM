@@ -1,35 +1,62 @@
 import type { TransferInvoice, TransferInvoiceLine } from "@/types/transfer";
 
-const INVOICE_COUNTER_KEY = "cannacore-invoice-sequence";
+const INVOICE_COUNTER_KEY = "cannacore-invoice-sequence-by-license";
+
+type LicenseInvoiceCounter = {
+  yy: string;
+  sequence: number;
+};
 
 function parseMoney(value: string): number {
   const parsed = Number.parseFloat(value.replace(/[^0-9.-]/g, ""));
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export function generateInvoiceNumber(date = new Date()): string {
-  const year = date.getFullYear();
-  let sequence = 1;
+/** Last 4 digits of license (non-digits stripped), zero-padded when fewer than 4. */
+export function extractLicenseInvoicePrefix(license: string): string {
+  const digits = license.replace(/\D/g, "");
+  if (!digits) return "0000";
+  return digits.slice(-4).padStart(4, "0");
+}
 
-  if (typeof window !== "undefined") {
-    const stored = window.sessionStorage.getItem(INVOICE_COUNTER_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as { year: number; sequence: number };
-        if (parsed.year === year) {
-          sequence = parsed.sequence + 1;
-        }
-      } catch {
-        sequence = 1;
-      }
-    }
-    window.sessionStorage.setItem(
-      INVOICE_COUNTER_KEY,
-      JSON.stringify({ year, sequence }),
-    );
+function readLicenseCounters(): Record<string, LicenseInvoiceCounter> {
+  if (typeof window === "undefined") return {};
+  const stored = window.sessionStorage.getItem(INVOICE_COUNTER_KEY);
+  if (!stored) return {};
+  try {
+    const parsed = JSON.parse(stored) as Record<string, LicenseInvoiceCounter>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
   }
+}
 
-  return `INV-${year}-${String(sequence).padStart(6, "0")}`;
+function writeLicenseCounters(counters: Record<string, LicenseInvoiceCounter>): void {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(INVOICE_COUNTER_KEY, JSON.stringify(counters));
+}
+
+/**
+ * Generate invoice number: LLLL-YY-000001
+ * LLLL = last 4 license digits, YY = 2-digit year, counter scoped per license.
+ */
+export function generateInvoiceNumber(
+  license: string,
+  date = new Date(),
+): string {
+  const licenseKey = license.trim() || "unknown";
+  const prefix = extractLicenseInvoicePrefix(licenseKey);
+  const yy = String(date.getFullYear()).slice(-2);
+
+  const counters = readLicenseCounters();
+  const existing = counters[licenseKey];
+  const sequence =
+    existing && existing.yy === yy ? existing.sequence + 1 : 1;
+
+  counters[licenseKey] = { yy, sequence };
+  writeLicenseCounters(counters);
+
+  return `${prefix}-${yy}-${String(sequence).padStart(6, "0")}`;
 }
 
 export function calculateLineTotal(line: TransferInvoiceLine): number {
