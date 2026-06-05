@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -18,36 +16,39 @@ function facilityLabel(display: string | null, license: string, name: string | n
 }
 
 export function MetrcFacilityBar() {
-  const pathname = usePathname();
   const {
     facilities,
     selectedLicense,
     loading,
     syncing,
     sandbox,
-    baseUrlHost,
     setSelectedLicense,
     refreshFacilities,
   } = useMetrcFacility();
 
-  const onLicense = pathname.startsWith("/metrc/") && pathname !== "/metrc";
-
   return (
-    <div className="border-b border-border-theme/40 bg-card/30 px-4 py-3 md:px-6">
-      <div className="mx-auto flex max-w-6xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Seed-To-Sale · Metrc {sandbox ? "Sandbox" : "Live"}
-          </div>
+    <header className="border-b border-border-theme/40 bg-card/30 px-4 py-3 md:px-6">
+      <div className="mx-auto flex max-w-[1600px] flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">
+            Seed-To-Sale
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Grower workspace · Metrc {sandbox ? "Sandbox" : "Live"}
+            {facilities.length > 0 ? ` · ${facilities.length} facilities` : ""}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {loading ? (
-            <Skeleton className="h-10 w-full max-w-md" />
+            <Skeleton className="h-9 w-[220px]" />
           ) : (
             <Select
               value={selectedLicense ?? undefined}
               onValueChange={setSelectedLicense}
             >
-              <SelectTrigger className="max-w-md">
-                <SelectValue placeholder="Select facility license" />
+              <SelectTrigger className="w-[220px] sm:w-[260px]">
+                <SelectValue placeholder="Select license" />
               </SelectTrigger>
               <SelectContent>
                 {facilities.map((f) => (
@@ -58,32 +59,17 @@ export function MetrcFacilityBar() {
               </SelectContent>
             </Select>
           )}
-          <p className="text-xs text-muted-foreground">
-            {facilities.length} facilities · {baseUrlHost}
-            {onLicense && selectedLicense ? (
-              <>
-                {" "}
-                ·{" "}
-                <Link
-                  href={`/metrc/${encodeURIComponent(selectedLicense)}`}
-                  className="text-primary underline-offset-4 hover:underline"
-                >
-                  Dashboard
-                </Link>
-              </>
-            ) : null}
-          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={syncing}
+            onClick={() => void refreshFacilities(true)}
+          >
+            {syncing ? "Syncing…" : "Sync facilities"}
+          </Button>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={syncing}
-          onClick={() => void refreshFacilities(true)}
-        >
-          {syncing ? "Syncing…" : "Sync facilities"}
-        </Button>
       </div>
-    </div>
+    </header>
   );
 }

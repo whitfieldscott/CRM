@@ -34,11 +34,11 @@ const NAV_ITEMS: NavItem[] = [
     match: (p) => p.startsWith("/metrc"),
   },
   {
-    id: "invoicing",
-    href: "/invoicing",
-    label: "Invoicing",
+    id: "invoices",
+    href: "/invoices",
+    label: "Invoices",
     icon: "🧾",
-    match: (p) => p.startsWith("/invoicing"),
+    match: (p) => p.startsWith("/invoices"),
   },
   {
     id: "package-prep",
